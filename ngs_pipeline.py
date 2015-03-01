@@ -9,6 +9,7 @@ def run_seqprep(file_set):
         #this method will also have an output to file mode,
         # and will save all the sequences that don't grep (maybe create a method to summarize)
         #the method will return a dictionary of variant names and counts of them
+        #lalalala
     pass
 
 def grep_to_reference(result_file,reference_file):

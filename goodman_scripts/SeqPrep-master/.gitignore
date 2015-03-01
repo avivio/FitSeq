@@ -1,0 +1,7 @@
+.cproject
+.project
+*.o
+SeqPrep
+*.txt
+*.fq
+

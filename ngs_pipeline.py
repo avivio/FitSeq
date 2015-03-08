@@ -3,18 +3,22 @@ import os
 import subprocess
 import re
 from Bio import SeqIO
+import gzip
 
 
+# DEFAULT_FORWARD_PRIMER='NNNNNNNNCAGCTCTTCGCCTTTACGCATATG'
+# DEFAULT_REVERSE_PRIMER ='ATGAAAAGCTTAGTCATGGCG'
+DEFAULT_FORWARD_PRIMER='GGCGCGCCATGACTAAGCTTTTCATTGTCATGC'
+DEFAULT_REVERSE_PRIMER = 'CATATGCGTAAAGGCGAAGAGCTGCTGTGTAGATCT'
 
-DEFAULT_FORWARD_PRIMER='NNNNNNNNCAGCTCTTCGCCTTTACGCATATG'
-DEFAULT_REVERSE_PRIMER ='ATGAAAAGCTTAGTCATGGCG'
-DEFAULT_REFERENCE_FILE = 'C:\Users\dell7\Documents\Tzachi\workspace\data\\reference_variant_full_sequences.fasta'
+HOME_DIR = '/home/labs/pilpel/avivro/'
+DEFAULT_REFERENCE_FILE = HOME_DIR + 'FitSeq/data/reference_variant_full_sequences.tab'
 
-BIN_DIR = 'C:\Users\dell7\Documents\Tzachi\workspace\data\\ngs_sample_data\Project_avivro'
+BIN_DIR = HOME_DIR  + 'FitSeq/data/ngs_sample_data/Project_avivro'
 
 
 def load_reference_dict(reference_location = DEFAULT_REFERENCE_FILE):
-    handle = open("opuntia.aln", "rU")
+    handle = open(reference_location, "rb")
     reference_dict = {}
     for record in SeqIO.parse(handle, "tab") :
         reference_dict[record.seq] = [record.id,0]
@@ -30,64 +34,80 @@ def trim_to_restricition_site(seq):
     trim = [None, None, None]
 
     # Check if both restriction sites are there
-    try:
-        hit1 = re3.search(seq)
-        hit1.groups()
+
+    hit1 = re3.search(seq)
+
+    if hit1:
+        print 'both'
+        print hit1.groups()
         trim[0] = 1
         trim[1] = str(hit1.group(1))
         trim[2] = 1
         return trim
-
-    except:
+    elif not hit1:
         # Check if only CATATG is present
-        try:
-            hit2 = re1.search(seq)
-            hit2.groups
-            ()
+        hit2 = re1.search(seq)
+        if hit2:
+            print 'first'
+            print hit2.groups()
             trim[0] = 1
             trim[1] = str(hit2.group(1))
             trim[2] = None
             return trim
-
-        except:
+        elif not hit2:
             # Check if only GGCGCGCC is present
-            try:
                 hit3 = re2.search(seq)
-                hit3.groups()
-                trim[0] = None
-                trim[1] = str(hit3.group(1))
-                trim[2] = 1
-                return trim
-
-            # No restriction sites present
-            except:
-                trim[0] = None
-                trim[1] = str(seq)
-                trim[2] = None
-                return trim
+                if hit3:
+                    print 'second'
+                    print hit3.groups()
+                    trim[0] = None
+                    trim[1] = str(hit3.group(1))
+                    trim[2] = 1
+                    return trim
+                else:
+                    print 'None'
+                    print str(seq)
+                    trim[0] = None
+                    trim[1] = str(seq)
+                    trim[2] = None
+                    return trim
 
 
 def trim_all_merged_sequences(merged_seq_file_location):
-    merged_seq_file = open(merged_seq_file_location,'rb')
-    trimmed_merged_seq_file_location = merged_seq_file_location[:-7] + 'T' + merged_seq_file_location[:-5]
+    merged_seq_file = gzip.open(merged_seq_file_location,'rb')
+    trimmed_merged_seq_file_location = merged_seq_file_location[:-7] + 'T.fq'
     trimmed_merged_seq_file = open(trimmed_merged_seq_file_location, 'wb')
     for record in SeqIO.parse(merged_seq_file, "fastq"):
-        trimmed_seq = trim_to_restricition_site(record.seq)
-        trimmed_merged_seq_file.writelines(trimmed_seq)
+        trimmed_seq = trim_to_restricition_site(str(record.seq))
+        trimmed_merged_seq_file.write(trimmed_seq[1] + '\n')
     return trimmed_merged_seq_file_location
 
 
 
 def run_seqprep(file_set,location,file_number,bin,
                 adapter_1=DEFAULT_FORWARD_PRIMER, adapter_2=DEFAULT_REVERSE_PRIMER):
-        output_dir = '\\'.join([location,'out\\'])
-
+        output_dir = '/'.join([location,'out/'])
+        if not os.path.exists(output_dir):
+          os.makedirs(output_dir)
 
         f_prefix = ''.join([output_dir,'output.',os.path.split(file_set['F'])[1]])
         r_prefix = ''.join([output_dir,'output.',os.path.split(file_set['R'])[1]])
         merged_result_file = output_dir+bin + '.file_' + str(file_number)+'.M.fq.gz'
-        #
-        # subprocess.check_call([
+
+        subprocess.check_call([
+        'SeqPrep',
+        '-f', file_set['F'],
+        '-r', file_set['R'],
+        '-1', f_prefix[:-6]+'.fq.gz',
+        '-2', r_prefix[:-6]+'.fq.gz',
+        '-3', f_prefix[:-6]+'.disc.fq.gz',
+        '-4', r_prefix[:-6]+'.disc.fq.gz',
+        '-s', merged_result_file,
+        '-A', adapter_1, '-B', adapter_2,
+        '-X', '1', '-g', '-L', '5'])
+
+
+        # print ' '.join([
         # 'SeqPrep',
         # '-f', file_set['F'],
         # '-r', file_set['R'],
@@ -98,19 +118,6 @@ def run_seqprep(file_set,location,file_number,bin,
         # '-s', merged_result_file,
         # '-A', adapter_1, '-B', adapter_2,
         # '-X', '1', '-g', '-L', '5'])
-
-
-        print ' '.join([
-        'SeqPrep',
-        '-f', file_set['F'],
-        '-r', file_set['R'],
-        '-1', f_prefix,
-        '-2', r_prefix,
-        '-3', f_prefix[:-6]+'.disc.fq.gz',
-        '-4', r_prefix[:-6]+'.disc.fq.gz',
-        '-s', merged_result_file,
-        '-A', adapter_1, '-B', adapter_2,
-        '-X', '1', '-g', '-L', '5'])
         return merged_result_file
 
         #this method will also have an output to file mode,
@@ -136,9 +143,10 @@ def count_variants(result_file,reference_dictionary):
             if reference_dictionary.has_key(result):
                 reference_dictionary[reference_dictionary][1] = reference_dictionary[reference_dictionary][1] + 1
             else:
-                print 'doesn\'t exist in reference'
-                print result
-                print '++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++'
+                pass
+                # print 'doesn\'t exist in reference'
+                # print result
+                # print '++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++'
 
         variant_count = {variant:frequency for variant, frequency in reference_dictionary.values()}
         return variant_count
@@ -147,13 +155,15 @@ def count_variants(result_file,reference_dictionary):
 def bin_variant_frequency(bin_name,location,files,output_to_file = False):
     #this method will return a dictionary of variant ids and numbers of counts, will also have an output to file method
     #create a list for the files that will be merged which is the size of all the R F pairs but starting from 1
-    mergable_files =[{}]*(len(files)/2 + 1)
+    mergable_files =[{} for _ in xrange(len(files)/2 + 1)]
+
     #go over all the files
     for file in files:
         #split the file in order to parse it
         split_file = file.split('_')
         #get the file number
         file_num = split_file[-1].split('.')[0]
+
         #create the dictionary for the f and r files if it doesn't exist
         # if mergable_files[int(file_num)] is None:
         #     mergable_files[int(file_num)] = {}
@@ -164,12 +174,14 @@ def bin_variant_frequency(bin_name,location,files,output_to_file = False):
         if file_read == 'R3':
             file_direction = 'R'
         #put the file directory concatenated to the name in the current file number slot in the F or R slot
-        mergable_files[int(file_num)][file_direction] = ''.join([location,file])
-    print mergable_files
-    variant_frequencies = [{}]*(len(mergable_files)+1)
+        cur_dict =  mergable_files[int(file_num)]
+        cur_dict[file_direction] = '/'.join([location,file])
+
+    variant_frequencies = [{} for _ in xrange(len(mergable_files)+1)]
 
     for index,file_set in  enumerate(mergable_files):
-        index = index + 1
+        if len(file_set)<1:
+            continue
         merged_result_file =  run_seqprep(file_set,location,index,bin_name)
         trimmed_merged_result_file = trim_all_merged_sequences(merged_result_file)
         reference_dictionary = load_reference_dict()
@@ -182,6 +194,7 @@ def bin_variant_frequency(bin_name,location,files,output_to_file = False):
                     bin_var_freq_dict[variant] = bin_var_freq_dict[variant] + frequency
                 else:
                     bin_var_freq_dict[variant]  = frequency
+    print  sum(bin_var_freq_dict.values())
     return bin_var_freq_dict
         #then go over the dictionary list, and in each dictionary go over the keys and values
         #create another dictionary, for every key (variant id) see if it exists in the dictionary
@@ -197,26 +210,28 @@ def go_over_bins(bin_dir  = BIN_DIR):
     #counting which point we are at in the walk
     walk_count = -1
     for root, dirs, files in os.walk(bin_dir, followlinks=True):
-        walk_count = walk_count + 1
+        if os.path.split(root)[1] == 'out':
+            break
 
+        walk_count = walk_count + 1
         #if there is anything in the dirs list it means we are at the top level and should be parsing the bin names
-        if len(dirs) > 0:
+        if walk_count == 0:
             bins = []
             for dir in dirs:
                 #take the directory name and parse out the bin name, put it in the bin name list which we will use later
                 bin_name = '_'.join(dir.split('_')[1:])
                 bins.append(bin_name)
                 # bin_freq_dict[bin_name] = variant_frequency(bin_name, )
-            # print bins
         # if there are files in the file list this means we are inside a bin and should be running the variant count
         if len(files) > 0:
             # we will use the bin name as the key for this bin in the bin-variant_freq dictionary
             bin_freq_dict[bins[walk_count-1]] = bin_variant_frequency(bins[walk_count-1],root,files )
-    print bin_freq_dict
-        #create a matrix with variants as rows and bins as columns
-        #(can think of creating third dimension for seperating time point and repeat)
-        #go over the binXvariant id X frequency dictionary and input into the matrix
-        #analyze
+        for freq_dict in bin_freq_dict.values():
+            print sum(freq_dict.values())
+            #create a matrix with variants as rows and bins as columns
+            #(can think of creating third dimension for seperating time point and repeat)
+            #go over the binXvariant id X frequency dictionary and input into the matrix
+            #analyze
 
 
 

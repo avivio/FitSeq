@@ -21,7 +21,7 @@ def load_reference_dict(reference_location = DEFAULT_REFERENCE_FILE):
     handle = open(reference_location, "rb")
     reference_dict = {}
     for record in SeqIO.parse(handle, "tab") :
-        reference_dict[record.seq] = [record.id,0]
+        reference_dict[str(record.seq.upper().reverse_complement())] = [record.id,0]
     handle.close()
     return reference_dict
 
@@ -38,8 +38,8 @@ def trim_to_restricition_site(seq):
     hit1 = re3.search(seq)
 
     if hit1:
-        print 'both'
-        print hit1.groups()
+        # print 'both'
+        # print hit1.groups()
         trim[0] = 1
         trim[1] = str(hit1.group(1))
         trim[2] = 1
@@ -48,8 +48,8 @@ def trim_to_restricition_site(seq):
         # Check if only CATATG is present
         hit2 = re1.search(seq)
         if hit2:
-            print 'first'
-            print hit2.groups()
+            # print 'first'
+            # print hit2.groups()
             trim[0] = 1
             trim[1] = str(hit2.group(1))
             trim[2] = None
@@ -58,15 +58,15 @@ def trim_to_restricition_site(seq):
             # Check if only GGCGCGCC is present
                 hit3 = re2.search(seq)
                 if hit3:
-                    print 'second'
-                    print hit3.groups()
+                    # print 'second'
+                    # print hit3.groups()
                     trim[0] = None
                     trim[1] = str(hit3.group(1))
                     trim[2] = 1
                     return trim
                 else:
-                    print 'None'
-                    print str(seq)
+                    # print 'None'
+                    # print str(seq)
                     trim[0] = None
                     trim[1] = str(seq)
                     trim[2] = None
@@ -137,22 +137,23 @@ def count_variants(result_file,reference_dictionary):
     #     'sort -nr > {output_file}']).format(
     #         reference_library=trimmed_ref_seq_file,
     #         output_file=sequence_output)
-
     with open(result_file, 'rb') as results:
+        print ' in with open clause'
         for result in results:
             if reference_dictionary.has_key(result):
                 reference_dictionary[reference_dictionary][1] = reference_dictionary[reference_dictionary][1] + 1
             else:
                 pass
                 # print 'doesn\'t exist in reference'
+                # print result_file
                 # print result
                 # print '++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++'
 
         variant_count = {variant:frequency for variant, frequency in reference_dictionary.values()}
-        return variant_count
+    return variant_count
 
 
-def bin_variant_frequency(bin_name,location,files,output_to_file = False):
+def bin_variant_frequency(bin_name,location,files,reference_dictionary,output_to_file = False):
     #this method will return a dictionary of variant ids and numbers of counts, will also have an output to file method
     #create a list for the files that will be merged which is the size of all the R F pairs but starting from 1
     mergable_files =[{} for _ in xrange(len(files)/2 + 1)]
@@ -184,7 +185,7 @@ def bin_variant_frequency(bin_name,location,files,output_to_file = False):
             continue
         merged_result_file =  run_seqprep(file_set,location,index,bin_name)
         trimmed_merged_result_file = trim_all_merged_sequences(merged_result_file)
-        reference_dictionary = load_reference_dict()
+
         variant_frequencies[index] = count_variants(trimmed_merged_result_file,reference_dictionary)
     bin_var_freq_dict ={}
     for var_freq_dict in variant_frequencies:
@@ -207,11 +208,12 @@ def bin_variant_frequency(bin_name,location,files,output_to_file = False):
 def go_over_bins(bin_dir  = BIN_DIR):
     #dictionary for end result of table with bin to variant frequencies
     bin_freq_dict = {}
+    reference_dictionary = load_reference_dict()
     #counting which point we are at in the walk
     walk_count = -1
     for root, dirs, files in os.walk(bin_dir, followlinks=True):
         if os.path.split(root)[1] == 'out':
-            break
+            continue
 
         walk_count = walk_count + 1
         #if there is anything in the dirs list it means we are at the top level and should be parsing the bin names
@@ -225,8 +227,9 @@ def go_over_bins(bin_dir  = BIN_DIR):
         # if there are files in the file list this means we are inside a bin and should be running the variant count
         if len(files) > 0:
             # we will use the bin name as the key for this bin in the bin-variant_freq dictionary
-            bin_freq_dict[bins[walk_count-1]] = bin_variant_frequency(bins[walk_count-1],root,files )
+            bin_freq_dict[bins[walk_count-1]] = bin_variant_frequency(bins[walk_count-1],root,files,reference_dictionary)
         for freq_dict in bin_freq_dict.values():
+            print bins[walk_count-1] + ' frequency: '
             print sum(freq_dict.values())
             #create a matrix with variants as rows and bins as columns
             #(can think of creating third dimension for seperating time point and repeat)

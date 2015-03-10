@@ -4,6 +4,7 @@ import subprocess
 import re
 from Bio import SeqIO
 import gzip
+from Bio.Seq import Seq
 
 
 # DEFAULT_FORWARD_PRIMER='NNNNNNNNCAGCTCTTCGCCTTTACGCATATG'
@@ -140,8 +141,12 @@ def count_variants(result_file,reference_dictionary):
     with open(result_file, 'rb') as results:
         print ' in with open clause'
         for result in results:
-            if reference_dictionary.has_key(result):
-                reference_dictionary[reference_dictionary][1] = reference_dictionary[reference_dictionary][1] + 1
+            result = Seq(result.strip())
+            if reference_dictionary.has_key(str(result)):
+                reference_dictionary[str(result)][1] = reference_dictionary[str(result)][1] + 1
+            elif reference_dictionary.has_key(str(result.reverse_complement())):
+                reference_dictionary[str(result.reverse_complement())][1] = reference_dictionary[str(result.reverse_complement())][1] + 1
+
             else:
                 pass
                 # print 'doesn\'t exist in reference'

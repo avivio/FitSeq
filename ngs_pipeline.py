@@ -5,17 +5,29 @@ import re
 from Bio import SeqIO
 import gzip
 from Bio.Seq import Seq
-
+import csv
 
 # DEFAULT_FORWARD_PRIMER='NNNNNNNNCAGCTCTTCGCCTTTACGCATATG'
 # DEFAULT_REVERSE_PRIMER ='ATGAAAAGCTTAGTCATGGCG'
 DEFAULT_FORWARD_PRIMER='GGCGCGCCATGACTAAGCTTTTCATTGTCATGC'
 DEFAULT_REVERSE_PRIMER = 'CATATGCGTAAAGGCGAAGAGCTGCTGTGTAGATCT'
 
-HOME_DIR = '/home/labs/pilpel/avivro/'
-DEFAULT_REFERENCE_FILE = HOME_DIR + 'FitSeq/data/reference_variant_full_sequences.tab'
+DEFAULT_HOME_DIR = '/home/labs/pilpel/avivro/'
+DEFAULT_REFERENCE_FILE = DEFAULT_HOME_DIR + 'FitSeq/data/reference_variant_full_sequences.tab'
 
-BIN_DIR = HOME_DIR  + 'FitSeq/data/ngs_sample_data/Project_avivro'
+# DEFAULT_BIN_DIR = DEFAULT_HOME_DIR  + 'FitSeq/data/ngs_sample_data/Project_avivro'
+DEFAULT_BIN_DIR = DEFAULT_HOME_DIR  + 'FitSeq/data/goodman_raw_data/Project_goodman'
+
+# DEFAULT_RESULT_DIR = DEFAULT_HOME_DIR  + 'FitSeq/data/ngs_sample_data/ngs_pipeline_result'
+DEFAULT_RESULT_DIR = DEFAULT_HOME_DIR  + 'FitSeq/data/goodman_raw_data/ngs_pipeline_result/Project_goodman'
+
+# DEFAULT_RESULT_FILE = DEFAULT_RESULT_DIR + '/Project_avivro_result.csv'
+DEFAULT_RESULT_FILE = DEFAULT_RESULT_DIR + '/goodman_raw_data_result.csv'
+
+
+# DEFAULT_DISCARDED_FILE = DEFAULT_RESULT_DIR + '/Project_avivro_discarded.csv'
+DEFAULT_DISCARDED_FILE = DEFAULT_RESULT_DIR + '/goodman_raw_data_discarded.csv'
+
 
 
 def load_reference_dict(reference_location = DEFAULT_REFERENCE_FILE):
@@ -39,8 +51,6 @@ def trim_to_restricition_site(seq):
     hit1 = re3.search(seq)
 
     if hit1:
-        # print 'both'
-        # print hit1.groups()
         trim[0] = 1
         trim[1] = str(hit1.group(1))
         trim[2] = 1
@@ -49,8 +59,6 @@ def trim_to_restricition_site(seq):
         # Check if only CATATG is present
         hit2 = re1.search(seq)
         if hit2:
-            # print 'first'
-            # print hit2.groups()
             trim[0] = 1
             trim[1] = str(hit2.group(1))
             trim[2] = None
@@ -59,28 +67,25 @@ def trim_to_restricition_site(seq):
             # Check if only GGCGCGCC is present
                 hit3 = re2.search(seq)
                 if hit3:
-                    # print 'second'
-                    # print hit3.groups()
                     trim[0] = None
                     trim[1] = str(hit3.group(1))
                     trim[2] = 1
                     return trim
                 else:
-                    # print 'None'
-                    # print str(seq)
+                    #if none are present
                     trim[0] = None
                     trim[1] = str(seq)
                     trim[2] = None
                     return trim
 
 
-def trim_all_merged_sequences(merged_seq_file_location):
+def trim_all_merged_sequences(bin, merged_seq_file_location):
     merged_seq_file = gzip.open(merged_seq_file_location,'rb')
     trimmed_merged_seq_file_location = merged_seq_file_location[:-7] + 'T.fq'
-    trimmed_merged_seq_file = open(trimmed_merged_seq_file_location, 'wb')
+    trimmed_merged_seq_csv = csv.writer(open(trimmed_merged_seq_file_location, 'wb'))
     for record in SeqIO.parse(merged_seq_file, "fastq"):
         trimmed_seq = trim_to_restricition_site(str(record.seq))
-        trimmed_merged_seq_file.write(trimmed_seq[1] + '\n')
+        trimmed_merged_seq_csv.writerow([bin, record.name, trimmed_seq[1]])
     return trimmed_merged_seq_file_location
 
 
@@ -107,7 +112,7 @@ def run_seqprep(file_set,location,file_number,bin,
         '-A', adapter_1, '-B', adapter_2,
         '-X', '1', '-g', '-L', '5'])
 
-
+        #to print seqprep run params
         # print ' '.join([
         # 'SeqPrep',
         # '-f', file_set['F'],
@@ -127,7 +132,7 @@ def run_seqprep(file_set,location,file_number,bin,
         #lalalala
 
 
-def count_variants(result_file,reference_dictionary):
+def count_variants(result_file_location,reference_dictionary, discarded_csv):
     #this method will also have an output to file mode,
         # and will save all the sequences that don't grep (maybe create a method to summarize)
         #the method will return a dictionary of variant names and counts of them
@@ -138,27 +143,27 @@ def count_variants(result_file,reference_dictionary):
     #     'sort -nr > {output_file}']).format(
     #         reference_library=trimmed_ref_seq_file,
     #         output_file=sequence_output)
-    with open(result_file, 'rb') as results:
-        print ' in with open clause'
-        for result in results:
-            result = Seq(result.strip())
+    with open(result_file_location, 'rb') as results_file:
+        results_csv = csv.reader(results_file)
+        for result in results_csv:
+            bin = result[0]
+            name = result[1]
+            result = Seq(result[2].strip())
             if reference_dictionary.has_key(str(result)):
                 reference_dictionary[str(result)][1] = reference_dictionary[str(result)][1] + 1
             elif reference_dictionary.has_key(str(result.reverse_complement())):
                 reference_dictionary[str(result.reverse_complement())][1] = reference_dictionary[str(result.reverse_complement())][1] + 1
 
             else:
-                pass
                 # print 'doesn\'t exist in reference'
-                # print result_file
-                # print result
+                discarded_csv.writerow([bin,name,result])
                 # print '++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++'
 
         variant_count = {variant:frequency for variant, frequency in reference_dictionary.values()}
     return variant_count
 
 
-def bin_variant_frequency(bin_name,location,files,reference_dictionary,output_to_file = False):
+def bin_variant_frequency(bin_name,location,files,reference_dictionary,discarded_csv,output_to_file = False):
     #this method will return a dictionary of variant ids and numbers of counts, will also have an output to file method
     #create a list for the files that will be merged which is the size of all the R F pairs but starting from 1
     mergable_files =[{} for _ in xrange(len(files)/2 + 1)]
@@ -189,9 +194,9 @@ def bin_variant_frequency(bin_name,location,files,reference_dictionary,output_to
         if len(file_set)<1:
             continue
         merged_result_file =  run_seqprep(file_set,location,index,bin_name)
-        trimmed_merged_result_file = trim_all_merged_sequences(merged_result_file)
+        trimmed_merged_result_file = trim_all_merged_sequences(bin_name,merged_result_file)
 
-        variant_frequencies[index] = count_variants(trimmed_merged_result_file,reference_dictionary)
+        variant_frequencies[index] = count_variants(trimmed_merged_result_file,reference_dictionary,discarded_csv)
     bin_var_freq_dict ={}
     for var_freq_dict in variant_frequencies:
         if len(var_freq_dict.items()) > 0:
@@ -200,7 +205,8 @@ def bin_variant_frequency(bin_name,location,files,reference_dictionary,output_to
                     bin_var_freq_dict[variant] = bin_var_freq_dict[variant] + frequency
                 else:
                     bin_var_freq_dict[variant]  = frequency
-    print  sum(bin_var_freq_dict.values())
+    print bin_name
+    print sum(bin_var_freq_dict.values())
     return bin_var_freq_dict
         #then go over the dictionary list, and in each dictionary go over the keys and values
         #create another dictionary, for every key (variant id) see if it exists in the dictionary
@@ -210,9 +216,12 @@ def bin_variant_frequency(bin_name,location,files,reference_dictionary,output_to
 
 
 
-def go_over_bins(bin_dir  = BIN_DIR):
+def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, result_dir = DEFAULT_RESULT_DIR, result_file = DEFAULT_RESULT_FILE,discarded_file = DEFAULT_DISCARDED_FILE):
     #dictionary for end result of table with bin to variant frequencies
     bin_freq_dict = {}
+    if not os.path.exists(result_dir):
+        os.makedirs(result_dir)
+    discarded_csv = csv.writer(open(discarded_file,'wb'))
     reference_dictionary = load_reference_dict()
     #counting which point we are at in the walk
     walk_count = -1
@@ -232,14 +241,28 @@ def go_over_bins(bin_dir  = BIN_DIR):
         # if there are files in the file list this means we are inside a bin and should be running the variant count
         if len(files) > 0:
             # we will use the bin name as the key for this bin in the bin-variant_freq dictionary
-            bin_freq_dict[bins[walk_count-1]] = bin_variant_frequency(bins[walk_count-1],root,files,reference_dictionary)
+            bin_freq_dict[bins[walk_count-1]] = bin_variant_frequency(bins[walk_count-1],root,files,reference_dictionary,discarded_csv)
+
+    all_sum = 0
+    for freq_dict in bin_freq_dict.values():
+        all_sum = all_sum + sum(freq_dict.values())
+    print 'all'
+    print all_sum
+    if not os.path.exists(result_dir):
+        os.makedirs(result_dir)
+    result_csv = csv.writer(open(result_file, 'wb'))
+    result_csv.writerow(['variant']+ bins)
+    for variant in  bin_freq_dict[bins[1]].keys():
+        variant_freq_list = [variant]
         for freq_dict in bin_freq_dict.values():
-            print bins[walk_count-1] + ' frequency: '
-            print sum(freq_dict.values())
-            #create a matrix with variants as rows and bins as columns
-            #(can think of creating third dimension for seperating time point and repeat)
-            #go over the binXvariant id X frequency dictionary and input into the matrix
-            #analyze
+            all_sum = all_sum + sum(freq_dict.values())
+            variant_freq_list.append(freq_dict[variant])
+    #     #create a matrix with variants as rows and bins as columns
+        result_csv.writerow( variant_freq_list)
+
+    #     #(can think of creating third dimension for seperating time point and repeat)
+    #     #go over the binXvariant id X frequency dictionary and input into the matrix
+    #     #analyze
 
 
 

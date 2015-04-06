@@ -1,5 +1,21 @@
 __author__ = 'dell7'
 import re
+import csv
+# DEFAULT_HOME_DIR = '/home/labs/pilpel/avivro/'
+DEFAULT_HOME_DIR = 'C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\'
+
+# DEFAULT_RESULT_DIR = DEFAULT_HOME_DIR + 'workspace/results/'
+DEFAULT_RESULT_DIR = DEFAULT_HOME_DIR + 'results\\'
+
+
+mutations_csv_location = DEFAULT_RESULT_DIR + 'mutations.csv'
+
+summary_file_location =  DEFAULT_RESULT_DIR + 'mutations_summary.txt'
+
+sam_file_location = DEFAULT_HOME_DIR + 'data\\discarded_merged_reads.sa'
+
+print sam_file_location
+sam_file = open(sam_file_location,'rb')
 
 class SamRecord:
     """A record of a sam format output from bowtie2"""
@@ -73,15 +89,16 @@ class SamRecord:
         return str(self.ref + self.cigar + self.mismatch).__hash__()
     def get_name(self):
         return '|'.join([self.ref ,self.cigar ,self.mismatch])
+    def __str__(self):
+        return '|'.join([self.ref, self.cigar ,self.mismatch ,str(self.length) ,str(self.edit_distance)])
+
+
 
 
 inner_cigar = re.compile('([0-9]*S)?(([0-9]+[^0-9S])+)([0-9]*S)?')
 
 
 
-sam_file_location = 'C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\discarded_merged_reads.sa'
-print sam_file_location
-sam_file = open(sam_file_location,'rb')
 all_counter = 0
 length_counter = 0
 dist_counter = 0
@@ -138,14 +155,12 @@ for line in sam_file:
             if current_sam_record.length == mutation_dict[current_sam_record.ref]['length']:
                 length_counter = length_counter + 1
                 if current_sam_record.name in mutation_dict[current_sam_record.ref]['mutations']:
-                    mutation_dict[current_sam_record.ref]['mutations'][current_sam_record.name]['counter'] = \
-                        mutation_dict[current_sam_record.ref]['mutations'][current_sam_record.name]['counter'] + 1
-                    mutation_dict[current_sam_record.ref]['mutations'][current_sam_record.name]['sam_records'].append(current_sam_record)
+                    mutation_dict[current_sam_record.ref]['mutations'][current_sam_record.name].append(current_sam_record)
                     print current_sam_record.name
                     print  mutation_dict[current_sam_record.ref]['mutations'][current_sam_record.name]
                 else:
                     mutation_dict[current_sam_record.ref]['mutations'].setdefault\
-                        (current_sam_record.name,{'counter':1,'sam_records':[current_sam_record]})
+                        (current_sam_record.name,[current_sam_record])
                 if current_sam_record.edit_distance<=3:
                     dist_counter = dist_counter + 1
             all_counter =all_counter + 1
@@ -156,12 +171,46 @@ for line in sam_file:
             length = split_ref[2].replace('LN:','')
             mutation_dict.setdefault(variant, {'length': int(length), 'mutations': {}})
 
-for mutant,dictionary in mutation_dict.items():
-    print mutant
-    print len(dictionary['mutations'])
+mutations_csv = csv.writer(open(mutations_csv_location,'wb'))
+mutations_csv.writerow(['gene','#mutants', '#mutations', '#mutants_edit_dist_1' , '#mutants_edit_dist_2', '#mutants_edit_dist_3', '#mutants_edit_dist_above_3','average_reads_per_mutant', 'top_mutant','top_mutant_reads'])
+for gene,dictionary in mutation_dict.items():
+    print gene
     print dictionary
-print length_counter
-print all_counter
-print dist_counter
+    mutations = 0
+    edit_dist_1 = 0
+    edit_dist_2 = 0
+    edit_dist_3 = 0
+    edit_dist_above_3 = 0
+    top_mutant = None
+    top_mutant_reads = 0
+
+    for mutant,sam_list in dictionary['mutations'].items():
+        mutations = mutations + len(sam_list)
+        if len(sam_list) > top_mutant_reads:
+            top_mutant = mutant
+            top_mutant_reads = len(sam_list)
+        if len(sam_list) > 0:
+            sam = sam_list[0]
+            if sam.edit_distance == 1:
+                edit_dist_1 = edit_dist_1 + 1
+            elif sam.edit_distance == 2:
+                edit_dist_2 = edit_dist_2 + 1
+            elif sam.edit_distance == 3:
+                edit_dist_3 = edit_dist_3 + 1
+            elif sam.edit_distance > 3:
+                edit_dist_above_3 = edit_dist_above_3 + 1
+
+    if len(dictionary['mutations'])>0:
+        average_per_mutant = mutations / len(dictionary['mutations'])
+    else:
+        average_per_mutant =0
+    print([gene, len(dictionary['mutations']), mutations, edit_dist_1,edit_dist_2,edit_dist_3,edit_dist_above_3,average_per_mutant, top_mutant, top_mutant_reads])
+    mutations_csv.writerow([gene, len(dictionary['mutations']), mutations, edit_dist_1,edit_dist_2,edit_dist_3,edit_dist_above_3,average_per_mutant, top_mutant, top_mutant_reads])
+
+
+summary_file = open(summary_file_location,'wb')
+summary_file.writelines([length_counter,all_counter,dist_counter])
+
+
 
 

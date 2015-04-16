@@ -5,15 +5,20 @@ import re
 from Bio import SeqIO
 import gzip
 from Bio.Seq import Seq
+import swalign
+from Bio import pairwise2
 import csv
 import getopt
-
+import sys
 
 #primers act as the adapters in the seqprep tool, need to see how this acts with umi's
-# DEFAULT_FORWARD_PRIMER='NNNNNNNNCAGCTCTTCGCCTTTACGCATATG'
-# DEFAULT_REVERSE_PRIMER ='ATGAAAAGCTTAGTCATGGCG'
-DEFAULT_FORWARD_PRIMER='GGCGCGCCATGACTAAGCTTTTCATTGTCATGC'
-DEFAULT_REVERSE_PRIMER = 'CATATGCGTAAAGGCGAAGAGCTGCTGTGTAGATCT'
+# DEFAULT_FORWARD_PRIMER='NNNNNNNNNCAGCTCTTCGCCTTTACGCATATG' with UMI
+DEFAULT_FORWARD_PRIMER='CAGCTCTTCGCCTTTACGCATATG'
+# DEFAULT_REVERSE_PRIMER ='ATGAAAAGCTTAGTCATGGCG' on the sense strand
+# DEFAULT_REVERSE_PRIMER ='CGCCATGACTAAGCTTTTCAT' not including the part of the restriction
+DEFAULT_REVERSE_PRIMER ='GGCGCGCCATGACTAAGCTTTTCAT'
+# DEFAULT_FORWARD_PRIMER='GGCGCGCCATGACTAAGCTTTTCATTGTCATGC'
+# DEFAULT_REVERSE_PRIMER = 'CATATGCGTAAAGGCGAAGAGCTGCTGTGTAGATCT'
 
 #home directory where everthing happens
 DEFAULT_HOME_DIR = '/home/labs/pilpel/avivro/'
@@ -32,10 +37,24 @@ DEFAULT_RESULT_DIR = DEFAULT_HOME_DIR  + 'FitSeq/data/goodman_raw_data/ngs_pipel
 # DEFAULT_RESULT_FILE = DEFAULT_RESULT_DIR + '/Project_avivro_result.csv'
 DEFAULT_RESULT_FILE = DEFAULT_RESULT_DIR + '/goodman_raw_data_result.csv'
 
+#the files that were discarded at the trim umi count stage
+# DEFAULT_DISCARDED_FILE = DEFAULT_RESULT_DIR + '/Project_avivro_discarded.csv'
+DEFAULT_DISCARDED_TRIM_FILE = DEFAULT_RESULT_DIR + '/goodman_raw_data_discarded_trim'
+
+
 #the files that were discarded at the variant count stage
 # DEFAULT_DISCARDED_FILE = DEFAULT_RESULT_DIR + '/Project_avivro_discarded.csv'
-DEFAULT_DISCARDED_FILE = DEFAULT_RESULT_DIR + '/goodman_raw_data_discarded.csv'
+DEFAULT_DISCARDED_VARIANT_FILE = DEFAULT_RESULT_DIR + '/goodman_raw_data_discarded_variant'
 
+
+DEFAULT_UMI_LENGTH = 9
+DEFAULT_R_SHIFT_LENGTH = 4
+DEFAULT_DESIGN_MAX_LENGTH = 94
+DEFAULT_DESIGN_MIN_LENGTH = 91
+DEFAULT_MATCH_SCORE= 2
+DEFAULT_MISMATCH_SCORE = -1
+DEFAULT_SCORING_MATRIX = swalign.NucleotideScoringMatrix(DEFAULT_MATCH_SCORE, DEFAULT_MISMATCH_SCORE)
+DEFAULT_SW_ALIGN = swalign.LocalAlignment(DEFAULT_SCORING_MATRIX)
 
 
 def load_reference_dict(reference_location = DEFAULT_REFERENCE_FILE):
@@ -196,7 +215,8 @@ def count_variants(result_file_location,reference_dictionary, discarded_csv):
     return variant_count
 
 
-def bin_variant_frequency(bin_name,location,files,reference_dictionary,discarded_csv,output_to_file = False):
+def bin_variant_frequency(bin_name,location,files,reference_dictionary,discarded_trim_csv,discarded_trim_fasta,
+                          discarded_variant_fasta,discarded_variant_csv ,output_to_file = False):
     #method that goes over the contents of a directory finds F R file pairs and sends them to be merged, trimemed and
     #counted. this method will return a dictionary of variant ids and numbers of counts for a bin
     #receives the anme of the bin, the directory of the sequncing fils. the list of files, the reference dictionary
@@ -259,7 +279,8 @@ def bin_variant_frequency(bin_name,location,files,reference_dictionary,discarded
 
 
 
-def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, result_dir = DEFAULT_RESULT_DIR, result_file = DEFAULT_RESULT_FILE,discarded_file = DEFAULT_DISCARDED_FILE):
+def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, result_dir = DEFAULT_RESULT_DIR, result_file = DEFAULT_RESULT_FILE,
+                 discarded_trim_file = DEFAULT_DISCARDED_TRIM_FILE,discarded_variant_file = DEFAULT_DISCARDED_VARIANT_FILE):
     #go over the bin directory, parse bin name from directory names and get the file contents of each
     #create a dictionary of the variant count of each bin and the aggregate them to a matrix of varaint to count per bin
     #receives raw data directory, result directory, result file name, discarded file name
@@ -272,8 +293,13 @@ def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, result_dir = DEFAULT_RESULT_DIR, re
     #if the result directory doesn't exist than create it
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
-    #opne the discarded csv writer that will be available for all bins to write to
-    discarded_csv = csv.writer(open(discarded_file,'wb'))
+    #opne the discarded files and csv writer that will be available for all bins to write to
+    discarded_trim_csv = csv.writer(open(discarded_trim_file + '.csv','wb'))
+    discarded_trim_fasta = open(discarded_trim_file + '.fq','wb')
+    discarded_variant_csv = csv.writer(open(discarded_variant_file + '.csv','wb'))
+    discarded_variant_fasta = open(discarded_variant_file + '.fq','wb')
+
+
     reference_dictionary = load_reference_dict()
 
     #counting which point we are at in the walk
@@ -295,7 +321,9 @@ def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, result_dir = DEFAULT_RESULT_DIR, re
         # if there are files in the file list this means we are inside a bin and should be running the variant count
         if len(files) > 0:
             # we will use the bin name as the key for this bin in the bin-variant_freq dictionary
-            bin_freq_dict[bins[walk_count-1]] = bin_variant_frequency(bins[walk_count-1],root,files,reference_dictionary,discarded_csv)
+            bin_freq_dict[bins[walk_count-1]] = bin_variant_frequency(bins[walk_count-1],root,files,reference_dictionary,
+                                                                      discarded_trim_csv,discarded_trim_fasta,
+                                                                      discarded_variant_csv,discarded_variant_fasta)
     # a variable to sum all reads mapped
     all_sum = 0
     #for each dictionary of each bin sum all values and put into the sum vairable and prin it
@@ -318,7 +346,79 @@ def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, result_dir = DEFAULT_RESULT_DIR, re
         result_csv.writerow( variant_freq_list)
 
 
+def align_and_trim_primers(seq, f_primer = DEFAULT_FORWARD_PRIMER, r_primer = DEFAULT_REVERSE_PRIMER,
+                           sw = DEFAULT_SW_ALIGN , umi_length = DEFAULT_UMI_LENGTH,
+                           r_shift_length = DEFAULT_R_SHIFT_LENGTH, design_max_length = DEFAULT_DESIGN_MAX_LENGTH,
+                           design_min_length = DEFAULT_DESIGN_MIN_LENGTH ):
+    # a method to align a sequence to primers, trim the primers and validate if all the parts are the right length
+    # variables: seq: sequence to align, f_primer: forward primer, r_primer: reverse primer,
+    # scoring_matrix: Smith Waterman scoring matrix, umi_length: primer design UMI length,
+    # r_shift_length: reverse primer design shift length, design_max_length: maximum length of designs,
+    # design_min_length: minimum length of designs
+    # returns UMI and sequence if the sequence passes all tests, returns fails string, umi, reverse shift overhang and
+    # fragment if one of the tests isn't passed
+    umi = ''
+    r_shift_overhang = ''
+    fragment = ''
+    f_alignment = sw.align(f_primer,seq)
+    if f_alignment.r_end - f_alignment.r_pos== len(f_primer):
+        umi = seq[:f_alignment.q_pos]
+        if len(umi) == umi_length:
+            fragment_start =f_alignment.q_end
+            r_alignment = sw.align(r_primer,seq)
+            if r_alignment.r_end - r_alignment.r_pos == len(r_primer):
+                r_shift_overhang =seq[r_alignment.q_end:]
+                if len(r_shift_overhang)<= r_shift_length:
+                    fragment_end =r_alignment.q_pos
+                    fragment = seq[fragment_start:fragment_end]
+                    print len(fragment)
+                    if len(fragment) <= design_max_length and len(fragment) >= design_min_length:
+                        return str(umi),str(fragment)
+                    else:
+                        return 'fragment not correct length',umi, r_shift_overhang,fragment
+                else:
+                    return 'reverse shift overhang not correct length',umi, r_shift_overhang,fragment
+            else:
+                return 'reverse primer alignment not full',umi, r_shift_overhang,fragment
+        else:
+                return 'UMI not correct length',umi, r_shift_overhang,fragment
+    else:
+        return 'forward primer alignment not full',umi, r_shift_overhang,fragment
 
+
+def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_trim_fasta):
+    all = 0
+    trim_num = 0
+    fragment_umi_dict = {}
+    for record in SeqIO.parse(open(merged_seq_file_location,'rb'),'fastq'):
+        all = all + 1
+        trimmed = align_and_trim_primers(record.seq)
+        if not trimmed:
+            trimmed = align_and_trim_primers(record.seq.reverse_complement())
+        if len(trimmed)==2:
+            trim_num = trim_num + 1
+            umi,fragment = trimmed
+            if fragment in fragment_umi_dict:
+                fragment_umi_dict[fragment]['umi_dict'][umi] = record
+                fragment_umi_dict[fragment]['count'] = fragment_umi_dict[fragment]['count'] + 1
+            else:
+                fragment_umi_dict.setdefault(fragment,{'umi_dict':{umi:record},'count':1})
+
+        else:
+            SeqIO.write(record,discarded_trim_fasta,'fastq')
+            discarded_trim_csv.writerow([trimmed])
+
+    print 'trim summary: ' + str(trim_num) + ' stripped out of ' + str(all) + ' ('  + str(float(trim_num)/float(all)) + '%)'
+    print str(len(fragment_umi_dict)) + ' unique sequences'
+
+
+    for fragment, dictionary in fragment_umi_dict.items():
+        print fragment
+        print dictionary['count']
+        umi_set = set(dictionary['umi_dict'].keys())
+        print len(umi_set)
+        print umi_set
+    return fragment_umi_dict
 
 
 def main(argv):
@@ -340,9 +440,15 @@ def main(argv):
     #         reference_file = arg
     #     if opt == 'hd':
     #         home_dir= arg
-    go_over_bins()
+    # go_over_bins()
+    discarded_trim_csv = csv.writer(open('C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\fitseq_sample_data\\discarded.csv','wb'))
+    discarded_trim_fasta = open('C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\fitseq_sample_data\\discarded.fq','wb')
 
-
+    fragment_umi_counts = get_umi_counts('1_anc','C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\fitseq_sample_data\\1_anc.file_1.M.fq',
+                                         discarded_trim_csv, discarded_trim_fasta)
+    print fragment_umi_counts
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+     main(sys.argv[1:])
+
+

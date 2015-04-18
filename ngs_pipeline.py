@@ -6,11 +6,14 @@ import re
 from Bio import SeqIO
 import gzip
 from Bio.Seq import Seq
-import swalign
 from Bio import pairwise2
 import csv
 import getopt
 import sys
+sys.path.append("/home/labs/pilpel/avivro/python_modules/")
+import swalign
+
+
 
 #primers act as the adapters in the seqprep tool, need to see how this acts with umi's
 # DEFAULT_FORWARD_PRIMER='NNNNNNNNNCAGCTCTTCGCCTTTACGCATATG' with UMI
@@ -22,33 +25,33 @@ DEFAULT_REVERSE_PRIMER ='GGCGCGCCATGACTAAGCTTTTCAT'
 # DEFAULT_REVERSE_PRIMER = 'CATATGCGTAAAGGCGAAGAGCTGCTGTGTAGATCT'
 
 #home directory where everthing happens
-DEFAULT_HOME_DIR = '/home/labs/pilpel/avivro/'
+DEFAULT_HOME_DIR = '/home/labs/pilpel/avivro/workspace/'
 #the variants refrences in the format of <id> <sequence> in tab delimited format
-DEFAULT_REFERENCE_FILE = DEFAULT_HOME_DIR + 'FitSeq/data/reference_variant_full_sequences.tab'
+DEFAULT_REFERENCE_FILE = DEFAULT_HOME_DIR + 'data/reference_variant_full_sequences.tab'
 
 #the location of the directory with the fastq files of each sample
-# DEFAULT_BIN_DIR = DEFAULT_HOME_DIR  + 'FitSeq/data/ngs_sample_data/Project_avivro'
-DEFAULT_BIN_DIR = DEFAULT_HOME_DIR  + 'FitSeq/data/goodman_raw_data/Project_goodman'
+DEFAULT_BIN_DIR = DEFAULT_HOME_DIR  + "data/fitseq_sample_data/Project_fitseq_1anc/"
+# DEFAULT_BIN_DIR = DEFAULT_HOME_DIR  + 'FitSeq/data/goodman_raw_data/Project_goodman'
 
 #the directory of the results of the pipeline
 # DEFAULT_RESULT_DIR = DEFAULT_HOME_DIR  + 'FitSeq/data/ngs_sample_data/ngs_pipeline_result'
-DEFAULT_RESULT_DIR = DEFAULT_HOME_DIR  + 'FitSeq/data/goodman_raw_data/ngs_pipeline_result/Project_goodman'
+DEFAULT_RESULT_DIR = DEFAULT_HOME_DIR  + 'data/fitseq_sample_data/ngs_pipeline_result_1anc_1804/'
 
 #the file with the result frequency matrix
 # DEFAULT_RESULT_FILE = DEFAULT_RESULT_DIR + '/Project_avivro_result.csv'
-DEFAULT_RESULT_FILE = DEFAULT_RESULT_DIR + '/fitseq_sample_result.csv'
+DEFAULT_RESULT_FILE = DEFAULT_RESULT_DIR + 'fitseq_sample_result.csv'
 
 #the files that were discarded at the trim umi count stage
 # DEFAULT_DISCARDED_FILE = DEFAULT_RESULT_DIR + '/Project_avivro_discarded.csv'
-DEFAULT_DISCARDED_TRIM_FILE = DEFAULT_RESULT_DIR + '/fitseq_sample_discarded_trim'
+DEFAULT_DISCARDED_TRIM_FILE = DEFAULT_RESULT_DIR + 'fitseq_sample_discarded_trim'
 
 
 #the files that were discarded at the variant count stage
 # DEFAULT_DISCARDED_FILE = DEFAULT_RESULT_DIR + '/Project_avivro_discarded.csv'
-DEFAULT_DISCARDED_VARIANT_FILE = DEFAULT_RESULT_DIR + '/fitseq_sample_discarded_variant'
+DEFAULT_DISCARDED_VARIANT_FILE = DEFAULT_RESULT_DIR + 'fitseq_sample_discarded_variant'
 
 #summary file to summarize stats. line 1:merged reads 2:trimmed reads 3:number of unique fragments found 4:number of unique umis for all fragments
-DEFAULT_SUMMARY_FILE= DEFAULT_RESULT_DIR + '/fitseq_sample_summary.txt'
+DEFAULT_SUMMARY_FILE= DEFAULT_RESULT_DIR + 'fitseq_sample_summary.txt'
 
 
 
@@ -160,7 +163,8 @@ def run_seqprep(file_set,location,file_number,bin,all_reads,merged_reads,
         summary_file = output_dir+bin + '.file_' + str(file_number)+'.summary.txt'
 
         #call the seqprep tool using the subprocesses library which integratges with linux os
-        proc = subprocess.Popen(([
+        # pipe = subprocess.call([
+        pipe = subprocess.Popen([
         'SeqPrep',
         '-f', file_set['F'],
         '-r', file_set['R'],
@@ -170,28 +174,35 @@ def run_seqprep(file_set,location,file_number,bin,all_reads,merged_reads,
         '-4', r_prefix[:-6]+'.disc.fq.gz',
         '-s', merged_result_file,
         # '-A', adapter_1, '-B', adapter_2,
-        '-X', '1', '-g', '-L', '5']))
-        output = proc.stdout.read()
+        '-X', '1', '-g', '-L', '5']
+        # )
+        , stdout=subprocess.PIPE,stderr=subprocess.PIPE, )
+        output = pipe.communicate()[1]
         output_file = StringIO.StringIO(output)
-        for line in output:
-            if line.startswith('Pairs Processed:'):
-                all_reads =  all_reads + int(line.replace('Pairs Processed:        ','').strip())
-            if line.startswith('Pairs Merged:'):
-                merged_reads = merged_reads + int(line.replace('Pairs Merged:   ','').strip())
-
-
-        #to print seqprep run params
+        # output_file = open(output_dir + "subprocess_out",'rb')
         # print ' '.join([
         # 'SeqPrep',
         # '-f', file_set['F'],
         # '-r', file_set['R'],
-        # '-1', f_prefix,
-        # '-2', r_prefix,
+        # '-1', f_prefix[:-6]+'.fq.gz',
+        # '-2', r_prefix[:-6]+'.fq.gz',
         # '-3', f_prefix[:-6]+'.disc.fq.gz',
         # '-4', r_prefix[:-6]+'.disc.fq.gz',
         # '-s', merged_result_file,
-        # '-A', adapter_1, '-B', adapter_2,
+        # # '-A', adapter_1, '-B', adapter_2,
+        for line in output_file:
+            if line.find('Pairs Processed:')> -1:
+                print 'in pairs processed!!!'
+                print line.replace('Pairs Processed:','').strip()
+                all_reads =  all_reads + int(line.replace('Pairs Processed:','').strip())
+            if line.find('Pairs Merged:')>-1:
+                print 'in pairs processed!!!'
+                print line.replace('Pairs Merged:','').strip()
+                merged_reads = merged_reads + int(line.replace('Pairs Merged:','').strip())
         # '-X', '1', '-g', '-L', '5'])
+
+        subprocess.call(['gzip', '-d','-f', merged_result_file])
+        merged_result_file = merged_result_file[:-3]
         return merged_result_file, all_reads, merged_reads
 
 
@@ -231,7 +242,7 @@ def count_variants(bin,fragment_umi_record_dict,reference_dictionary, discarded_
 
 
 def bin_variant_frequency(bin_name,location,files,reference_dictionary,discarded_trim_csv,discarded_trim_fasta,
-                          discarded_variant_fasta,discarded_variant_csv ,summary_file_location, output_to_file = False):
+                          discarded_variant_csv,discarded_variant_fasta ,summary_file_location, output_to_file = False):
     #method that goes over the contents of a directory finds F R file pairs and sends them to be merged, trimemed and
     #counted. this method will return a dictionary of variant ids and numbers of counts for a bin
     #receives the anme of the bin, the directory of the sequncing fils. the list of files, the reference dictionary
@@ -276,7 +287,8 @@ def bin_variant_frequency(bin_name,location,files,reference_dictionary,discarded
         #trim merged file results from seqprep
         # trimmed_merged_result_file = trim_all_merged_sequences(bin_name,merged_result_file)
         #trim merged file results from seqprep
-        fragment_umi_record_dict,trimmed_reads =  get_umi_counts(bin_name,merged_result_file,discarded_trim_csv,discarded_trim_fasta,trimmed_files)
+        fragment_umi_record_dict,trimmed_reads =  get_umi_counts(bin_name,merged_result_file,discarded_trim_csv,
+                                                                 discarded_trim_fasta,trimmed_reads)
         #take the trimmed frequencines and count the variants in each file, put the resulting dictionary in the index of the file number
         variant_frequencies[index] = count_variants(bin_name,fragment_umi_record_dict,reference_dictionary,
                                                     discarded_variant_csv,discarded_variant_fasta)
@@ -295,23 +307,26 @@ def bin_variant_frequency(bin_name,location,files,reference_dictionary,discarded
                 else:
                     bin_var_freq_dict[variant]  = frequency
     #print the sum of all bin counts
+    found_variants = 0
+    all_freqs = 0
     for variant,freq in bin_var_freq_dict.items():
         if int(freq) > 0:
             found_variants = found_variants +1
         all_freqs = all_freqs + freq
     summary_csv = csv.writer(open(summary_file_location, 'wb'))
     summary_csv.writerow(['',bin_name])
-    summary_csv.writerow([all_reads,'all_reads'])
-    summary_csv.writerow([merged_reads,'merged_reads'])
-    summary_csv.writerow([trimmed_reads,'trimmed_reads'])
-    summary_csv.writerow([found_variants,'found_variants'])
-    summary_csv.writerow([all_freqs,'all_freqs'])
+    summary_csv.writerow(['all_reads',all_reads])
+    summary_csv.writerow(['merged_reads',merged_reads])
+    summary_csv.writerow(['trimmed_reads',trimmed_reads])
+    summary_csv.writerow(['found_variants',found_variants])
+    summary_csv.writerow(['all_freqs',all_freqs])
     return bin_var_freq_dict
 
 
 
-def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, result_dir = DEFAULT_RESULT_DIR, result_file = DEFAULT_RESULT_FILE,
-                 discarded_trim_file = DEFAULT_DISCARDED_TRIM_FILE,discarded_variant_file = DEFAULT_DISCARDED_VARIANT_FILE):
+def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, result_dir = DEFAULT_RESULT_DIR, reference_file = DEFAULT_REFERENCE_FILE,
+                 result_file = DEFAULT_RESULT_FILE, discarded_trim_file = DEFAULT_DISCARDED_TRIM_FILE,
+                 discarded_variant_file = DEFAULT_DISCARDED_VARIANT_FILE, summary_file_location = DEFAULT_SUMMARY_FILE):
     #go over the bin directory, parse bin name from directory names and get the file contents of each
     #create a dictionary of the variant count of each bin and the aggregate them to a matrix of varaint to count per bin
     #receives raw data directory, result directory, result file name, discarded file name
@@ -325,13 +340,13 @@ def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, result_dir = DEFAULT_RESULT_DIR, re
     if not os.path.exists(result_dir):
         os.makedirs(result_dir)
     #opne the discarded files and csv writer that will be available for all bins to write to
-    discarded_trim_csv = csv.writer(open(discarded_trim_file + '.csv','wb'))
+    discarded_trim_csv  = csv.writer(open(discarded_trim_file + '.csv','wb'))
     discarded_trim_fasta = open(discarded_trim_file + '.fq','wb')
     discarded_variant_csv = csv.writer(open(discarded_variant_file + '.csv','wb'))
     discarded_variant_fasta = open(discarded_variant_file + '.fq','wb')
 
 
-    reference_dictionary = load_reference_dict()
+    reference_dictionary = load_reference_dict(reference_file)
 
     #counting which point we are at in the walk
     walk_count = -1
@@ -354,7 +369,8 @@ def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, result_dir = DEFAULT_RESULT_DIR, re
             # we will use the bin name as the key for this bin in the bin-variant_freq dictionary
             bin_freq_dict[bins[walk_count-1]] = bin_variant_frequency(bins[walk_count-1],root,files,reference_dictionary,
                                                                       discarded_trim_csv,discarded_trim_fasta,
-                                                                      discarded_variant_csv,discarded_variant_fasta)
+                                                                      discarded_variant_csv,discarded_variant_fasta,
+                                                                      summary_file_location)
     # a variable to sum all reads mapped
     all_sum = 0
     #for each dictionary of each bin sum all values and put into the sum vairable and prin it
@@ -366,7 +382,7 @@ def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, result_dir = DEFAULT_RESULT_DIR, re
     result_csv.writerow(['variant']+ bins)
     # for each variant (which should exist in all bins) go over the each freq dictionary find the variants frequency
     # and add it to a list which will then be writen as a row in the csv
-    for variant in  bin_freq_dict[bins[1]].keys():
+    for variant in  bin_freq_dict[bins[0]].keys():
         variant_freq_list = [variant]
         for freq_dict in bin_freq_dict.values():
             all_sum = all_sum + sum(freq_dict.values())
@@ -403,26 +419,26 @@ def align_and_trim_primers(seq, f_primer = DEFAULT_FORWARD_PRIMER, r_primer = DE
                     if len(fragment) <= design_max_length and len(fragment) >= design_min_length:
                         return str(umi),str(fragment)
                     else:
-                        print len(fragment)
-                        print f_alignment.dump()
-                        print r_alignment.dump()
-                        print 'fragment not correct length',umi, r_shift_overhang,str(fragment)
+                        # print len(fragment)
+                        # print f_alignment.dump()
+                        # print r_alignment.dump()
+                        # print 'fragment not correct length',umi, r_shift_overhang,str(fragment)
                         return 'fragment not correct length',umi, r_shift_overhang,str(fragment)
                 else:
-                    print r_alignment.dump()
-                    print 'reverse shift overhang not correct length',umi, r_shift_overhang,str(seq)
+                    # print r_alignment.dump()
+                    # print 'reverse shift overhang not correct length',umi, r_shift_overhang,str(seq)
                     return 'reverse shift overhang not correct length',umi, r_shift_overhang,str(seq)
             else:
-                print f_alignment.dump()
-                print 'reverse primer alignment not full',umi, r_shift_overhang,str(seq)
+                # print f_alignment.dump()
+                # print 'reverse primer alignment not full',umi, r_shift_overhang,str(seq)
                 return 'reverse primer alignment not full',umi, r_shift_overhang,str(seq)
         else:
-            print f_alignment.dump()
-            print 'UMI not correct length',umi, r_shift_overhang,str(seq)
+            # print f_alignment.dump()
+            # print 'UMI not correct length',umi, r_shift_overhang,str(seq)
             return 'UMI not correct length',umi, r_shift_overhang,str(seq)
     else:
-        print f_alignment.dump()
-        print 'forward primer alignment not full',umi, r_shift_overhang,str(seq)
+        # print f_alignment.dump()
+        # print 'forward primer alignment not full',umi, r_shift_overhang,str(seq)
         return 'forward primer alignment not full',umi, r_shift_overhang,str(seq)
 
 
@@ -440,13 +456,13 @@ def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_tr
     trim_num = 0
     for record in SeqIO.parse(open(merged_seq_file_location,'rb'),'fastq'):
         # all = all + 1
-        print '+++++++++++stragith attempt+++++++++++'
+        # print '+++++++++++stragith attempt+++++++++++'
         trimmed = align_and_trim_primers(record.seq)
         if len(trimmed)>2:
-            print '------------------reverse attempt------------------'
+            # print '------------------reverse attempt------------------'
             trimmed = align_and_trim_primers(record.seq.reverse_complement())
         if len(trimmed)==2:
-            print '==================== SUCCSESS ===================='
+            # print '==================== SUCCSESS ===================='
             trim_num = trim_num + 1
             umi,fragment = trimmed
             if fragment in fragment_umi_dict:
@@ -459,7 +475,7 @@ def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_tr
                 fragment_umi_dict.setdefault(fragment,{'umi_dict':{umi:[record]},'count':1})
 
         else:
-            print '~~~~~~~~~~~~~~~~~~~~~~ failure ~~~~~~~~~~~~~~~~~~~~~~'
+            # print '~~~~~~~~~~~~~~~~~~~~~~ failure ~~~~~~~~~~~~~~~~~~~~~~'
 
             SeqIO.write(record,discarded_trim_fasta,'fastq')
             discarded_trim_csv.writerow([bin] + [trimmed])
@@ -471,7 +487,7 @@ def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_tr
 
     for fragment, dictionary in fragment_umi_dict.items():
         umi_set = set(dictionary['umi_dict'].keys())
-    return fragment_umi_dict, trimmed_files
+    return fragment_umi_dict, trimmed_reads
 
 
 def main(argv):
@@ -517,12 +533,25 @@ def main(argv):
     # summary_file = open(summary_file_location,'ab')
     # summary_file.write(str(found_variants)+'\n')
     # summary_file.write(str(all_freqs)+'\n')
-    go_over_bins()
+    home_dir = argv[0]
+    ref_file = home_dir + argv[1]
+    bin_dir = home_dir + argv[2]
+    res_dir = home_dir  + argv[3]
+    res_file = home_dir  + argv[4]
+    discarded_trim_file = home_dir  + argv[5]
+    discarded_variant_file= home_dir  + argv[6]
+    summary_file =home_dir  + argv[7]
+
+    # go_over_bins(bin_dir,res_dir,ref_file,res_file,discarded_trim_file,discarded_variant_file,summary_file,)
+
     print 'run completed'
 
 
 
 if __name__ == "__main__":
+    #call main giving arguments as so 1-home directory 2-reference file name 3-bin directory 4-result directory
+    # 5- result file 6-discarded trim file 7-discarded variant file 7-summary_file
+
      main(sys.argv[1:])
 
 

@@ -1,4 +1,5 @@
 __author__ = 'avivro'
+import StringIO
 import os
 import subprocess
 import re
@@ -139,7 +140,7 @@ def trim_all_merged_sequences(bin, merged_seq_file_location):
 
 
 
-def run_seqprep(file_set,location,file_number,bin,
+def run_seqprep(file_set,location,file_number,bin,all_reads,merged_reads,
                 adapter_1=DEFAULT_FORWARD_PRIMER, adapter_2=DEFAULT_REVERSE_PRIMER):
         #this method runs the seqprep tool on a set of files from a certain sample and results in a merged and
         #adapter trimmed file
@@ -156,9 +157,10 @@ def run_seqprep(file_set,location,file_number,bin,
         f_prefix = ''.join([output_dir,'output.',os.path.split(file_set['F'])[1]])
         r_prefix = ''.join([output_dir,'output.',os.path.split(file_set['R'])[1]])
         merged_result_file = output_dir+bin + '.file_' + str(file_number)+'.M.fq.gz'
+        summary_file = output_dir+bin + '.file_' + str(file_number)+'.summary.txt'
 
         #call the seqprep tool using the subprocesses library which integratges with linux os
-        subprocess.check_call([
+        proc = subprocess.Popen(([
         'SeqPrep',
         '-f', file_set['F'],
         '-r', file_set['R'],
@@ -168,7 +170,15 @@ def run_seqprep(file_set,location,file_number,bin,
         '-4', r_prefix[:-6]+'.disc.fq.gz',
         '-s', merged_result_file,
         # '-A', adapter_1, '-B', adapter_2,
-        '-X', '1', '-g', '-L', '5'])
+        '-X', '1', '-g', '-L', '5']))
+        output = proc.stdout.read()
+        output_file = StringIO.StringIO(output)
+        for line in output:
+            if line.startswith('Pairs Processed:'):
+                all_reads =  all_reads + int(line.replace('Pairs Processed:        ','').strip())
+            if line.startswith('Pairs Merged:'):
+                merged_reads = merged_reads + int(line.replace('Pairs Merged:   ','').strip())
+
 
         #to print seqprep run params
         # print ' '.join([
@@ -182,7 +192,7 @@ def run_seqprep(file_set,location,file_number,bin,
         # '-s', merged_result_file,
         # '-A', adapter_1, '-B', adapter_2,
         # '-X', '1', '-g', '-L', '5'])
-        return merged_result_file
+        return merged_result_file, all_reads, merged_reads
 
 
 def count_variants(bin,fragment_umi_record_dict,reference_dictionary, discarded_variant_csv, discarded_variant_fasta):
@@ -221,7 +231,7 @@ def count_variants(bin,fragment_umi_record_dict,reference_dictionary, discarded_
 
 
 def bin_variant_frequency(bin_name,location,files,reference_dictionary,discarded_trim_csv,discarded_trim_fasta,
-                          discarded_variant_fasta,discarded_variant_csv ,output_to_file = False):
+                          discarded_variant_fasta,discarded_variant_csv ,summary_file_location, output_to_file = False):
     #method that goes over the contents of a directory finds F R file pairs and sends them to be merged, trimemed and
     #counted. this method will return a dictionary of variant ids and numbers of counts for a bin
     #receives the anme of the bin, the directory of the sequncing fils. the list of files, the reference dictionary
@@ -254,19 +264,23 @@ def bin_variant_frequency(bin_name,location,files,reference_dictionary,discarded
     #create list of variant frequency the length of the number of mergable files plus one (so it starts from 1)
     variant_frequencies = [{} for _ in xrange(len(mergable_files)+1)]
 
+    all_reads = 0
+    merged_reads = 0
+    trimmed_reads = 0
     # if the file set doesn't have any files than don't loop
     for index,file_set in  enumerate(mergable_files):
         if len(file_set)<1:
             continue
         #take the mergable files list of sublists and run seqprep on it
-        merged_result_file =  run_seqprep(file_set,location,index,bin_name)
+        merged_result_file,all_reads, merged_reads =  run_seqprep(file_set,location,index,bin_name,all_reads, merged_reads)
         #trim merged file results from seqprep
         # trimmed_merged_result_file = trim_all_merged_sequences(bin_name,merged_result_file)
         #trim merged file results from seqprep
-        fragment_umi_record_dict =  get_umi_counts(bin_name,merged_result_file,discarded_trim_csv,discarded_trim_fasta)
+        fragment_umi_record_dict,trimmed_reads =  get_umi_counts(bin_name,merged_result_file,discarded_trim_csv,discarded_trim_fasta,trimmed_files)
         #take the trimmed frequencines and count the variants in each file, put the resulting dictionary in the index of the file number
         variant_frequencies[index] = count_variants(bin_name,fragment_umi_record_dict,reference_dictionary,
                                                     discarded_variant_csv,discarded_variant_fasta)
+
     #create empty dictionary to aggregate the varaint counts to one dictionary
     bin_var_freq_dict ={}
     #go over variant count dictionary and merge all counts to one dictionary using the keys from any one of them
@@ -281,8 +295,17 @@ def bin_variant_frequency(bin_name,location,files,reference_dictionary,discarded
                 else:
                     bin_var_freq_dict[variant]  = frequency
     #print the sum of all bin counts
-    print bin_name
-    print sum(bin_var_freq_dict.values())
+    for variant,freq in bin_var_freq_dict.items():
+        if int(freq) > 0:
+            found_variants = found_variants +1
+        all_freqs = all_freqs + freq
+    summary_csv = csv.writer(open(summary_file_location, 'wb'))
+    summary_csv.writerow(['',bin_name])
+    summary_csv.writerow([all_reads,'all_reads'])
+    summary_csv.writerow([merged_reads,'merged_reads'])
+    summary_csv.writerow([trimmed_reads,'trimmed_reads'])
+    summary_csv.writerow([found_variants,'found_variants'])
+    summary_csv.writerow([all_freqs,'all_freqs'])
     return bin_var_freq_dict
 
 
@@ -403,19 +426,20 @@ def align_and_trim_primers(seq, f_primer = DEFAULT_FORWARD_PRIMER, r_primer = DE
         return 'forward primer alignment not full',umi, r_shift_overhang,str(seq)
 
 
-def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_trim_fasta,summary_file_location):
+def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_trim_fasta,trimmed_reads):
     #todo condisder having an output to json or xml function for this because umi count is undetermined
-    if os.stat(summary_file_location).st_size == 0:
-        all =0
-        trim_num = 0
-    else:
-        summary_file = open(summary_file_location,'rb')
-        all = int(summary_file.next())
-        trim_num = int(summary_file.next())
-        summary_file.close()
+    # if os.stat(summary_file_location).st_size == 0:
+    #     all =0
+    #     trim_num = 0
+    # else:
+    #     summary_file = open(summary_file_location,'rb')
+    #     all = int(summary_file.next())
+    #     trim_num = int(summary_file.next())
+    #     summary_file.close()
     fragment_umi_dict = {}
+    trim_num = 0
     for record in SeqIO.parse(open(merged_seq_file_location,'rb'),'fastq'):
-        all = all + 1
+        # all = all + 1
         print '+++++++++++stragith attempt+++++++++++'
         trimmed = align_and_trim_primers(record.seq)
         if len(trimmed)>2:
@@ -439,14 +463,15 @@ def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_tr
 
             SeqIO.write(record,discarded_trim_fasta,'fastq')
             discarded_trim_csv.writerow([bin] + [trimmed])
-    summary_file = open(summary_file_location,'wb')
-    summary_file.write(str(str(all)) +'\n')
-    summary_file.write(str(str(trim_num)) +'\n')
-    summary_file.close()
+    # summary_file = open(summary_file_location,'wb')
+    # summary_file.write(str(str(all)) +'\n')
+    # summary_file.write(str(str(trim_num)) +'\n')
+    # summary_file.close()
+    trimmed_reads = trimmed_reads + trim_num
 
     for fragment, dictionary in fragment_umi_dict.items():
         umi_set = set(dictionary['umi_dict'].keys())
-    return fragment_umi_dict
+    return fragment_umi_dict, trimmed_files
 
 
 def main(argv):
@@ -468,31 +493,32 @@ def main(argv):
     #         reference_file = arg
     #     if opt == 'hd':
     #         home_dir= arg
-    # go_over_bins()
-    discarded_trim_csv = csv.writer(open('C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\fitseq_sample_data\\discarded_trim.csv','wb'))
-    discarded_trim_fasta = open('C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\fitseq_sample_data\\discarded_trim.fq','wb')
-    discarded_variant_csv = csv.writer(open('C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\fitseq_sample_data\\discarded_variant.csv','wb'))
-    discarded_variant_fasta = open('C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\fitseq_sample_data\\discarded_variant.fq','wb')
-    reference_location = 'C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\reference_variant_full_sequences.tab'
-    summary_file_location = 'C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\fitseq_sample_data\\fitseq_sample_summary.txt'
-    summary_file = open( summary_file_location ,'wb')
-    summary_file.close()
-    bin_name = '1_anc'
-
-    fragment_umi_counts = get_umi_counts(bin_name,'C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\fitseq_sample_data\\1_anc.file_1.M.fq',
-                                         discarded_trim_csv, discarded_trim_fasta,summary_file_location)
-    reference_dictionary = load_reference_dict(reference_location = reference_location)
-    variant_frequencies = count_variants(bin_name,fragment_umi_counts,reference_dictionary,
-                                                    discarded_variant_csv,discarded_variant_fasta)
-    all_freqs = 0
-    found_variants = 0
-    for variant,freq in variant_frequencies.items():
-        if int(freq) > 0:
-            found_variants = found_variants +1
-        all_freqs = all_freqs + freq
-    summary_file = open(summary_file_location,'ab')
-    summary_file.write(str(found_variants)+'\n')
-    summary_file.write(str(all_freqs)+'\n')
+    # discarded_trim_csv = csv.writer(open('C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\fitseq_sample_data\\discarded_trim.csv','wb'))
+    # discarded_trim_fasta = open('C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\fitseq_sample_data\\discarded_trim.fq','wb')
+    # discarded_variant_csv = csv.writer(open('C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\fitseq_sample_data\\discarded_variant.csv','wb'))
+    # discarded_variant_fasta = open('C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\fitseq_sample_data\\discarded_variant.fq','wb')
+    # reference_location = 'C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\reference_variant_full_sequences.tab'
+    # summary_file_location = 'C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\fitseq_sample_data\\fitseq_sample_summary.txt'
+    # summary_file = open( summary_file_location ,'wb')
+    # summary_file.close()
+    # bin_name = '1_anc'
+    #
+    # fragment_umi_counts = get_umi_counts(bin_name,'C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\fitseq_sample_data\\1_anc.file_1.M.fq',
+    #                                      discarded_trim_csv, discarded_trim_fasta,summary_file_location)
+    # reference_dictionary = load_reference_dict(reference_location = reference_location)
+    # variant_frequencies = count_variants(bin_name,fragment_umi_counts,reference_dictionary,
+    #                                                 discarded_variant_csv,discarded_variant_fasta)
+    # all_freqs = 0
+    # found_variants = 0
+    # for variant,freq in variant_frequencies.items():
+    #     if int(freq) > 0:
+    #         found_variants = found_variants +1
+    #     all_freqs = all_freqs + freq
+    # summary_file = open(summary_file_location,'ab')
+    # summary_file.write(str(found_variants)+'\n')
+    # summary_file.write(str(all_freqs)+'\n')
+    go_over_bins()
+    print 'run completed'
 
 
 

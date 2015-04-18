@@ -241,8 +241,7 @@ def count_variants(bin,fragment_umi_record_dict,reference_dictionary, discarded_
     return variant_count
 
 
-def bin_variant_frequency(bin_name,location,files,reference_dictionary,discarded_trim_csv,discarded_trim_fasta,
-                          discarded_variant_csv,discarded_variant_fasta ,summary_file_location, output_to_file = False):
+def bin_variant_frequency(bin_name,location,ref_file,discarded_trim_file,discarded_variant_file,summary_file_location):
     #method that goes over the contents of a directory finds F R file pairs and sends them to be merged, trimemed and
     #counted. this method will return a dictionary of variant ids and numbers of counts for a bin
     #receives the anme of the bin, the directory of the sequncing fils. the list of files, the reference dictionary
@@ -250,6 +249,17 @@ def bin_variant_frequency(bin_name,location,files,reference_dictionary,discarded
     # TODO output variant frequency to file option
 
     #create a list for the files that will be merged which is the size of all the R F pairs but starting from 1
+    files = []
+    for filename in os.listdir(location):
+        if os.path.isfile(filename):
+            files.append(filename)
+
+    reference_dictionary = load_reference_dict(ref_file)
+    discarded_trim_csv  = csv.writer(open(discarded_trim_file + '.csv','wb'))
+    discarded_trim_fasta = open(discarded_trim_file + '.fq','wb')
+    discarded_variant_csv = csv.writer(open(discarded_variant_file + '.csv','wb'))
+    discarded_variant_fasta = open(discarded_variant_file + '.fq','wb')
+
     mergable_files =[{} for _ in xrange(len(files)/2 + 1)]
 
     #go over all the files
@@ -533,17 +543,29 @@ def main(argv):
     # summary_file = open(summary_file_location,'ab')
     # summary_file.write(str(found_variants)+'\n')
     # summary_file.write(str(all_freqs)+'\n')
-    home_dir = argv[0]
-    ref_file = home_dir + argv[1]
-    bin_dir = home_dir + argv[2]
-    res_dir = home_dir  + argv[3]
-    res_file = home_dir  + argv[4]
-    discarded_trim_file = home_dir  + argv[5]
-    discarded_variant_file= home_dir  + argv[6]
-    summary_file =home_dir  + argv[7]
+    # home_dir = argv[0]
+    # ref_file = home_dir + argv[1]
+    # bin_dir = home_dir + argv[2]
+    # res_dir = home_dir  + argv[3]
+    # res_file = home_dir  + argv[4]
+    # discarded_trim_file = home_dir  + argv[5]
+    # discarded_variant_file= home_dir  + argv[6]
+    # summary_file =home_dir  + argv[7]
+
+    bin_name =  argv[0]
+    home_dir = argv[1]
+    ref_file = home_dir + argv[2]
+    res_file = res_dir  + argv[4]
+    discarded_trim_file = res_dir  + argv[5]
+    discarded_variant_file= res_dir  + argv[6]
+    summary_file =res_dir  + argv[7]
 
     # go_over_bins(bin_dir,res_dir,ref_file,res_file,discarded_trim_file,discarded_variant_file,summary_file,)
-
+    design_frequency = bin_variant_frequency(bin_name,location,ref_file,discarded_trim_file,discarded_variant_file,summary_file)
+    result_csv = csv.writer(open(res_file,'wb'))
+    result_csv.writerow(['',bin_name])
+    for design,frequency in design_frequency.items():
+        result_csv.writerow([design,frequency])
     print 'run completed'
 
 

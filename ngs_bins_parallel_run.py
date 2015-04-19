@@ -15,18 +15,18 @@ DEFAULT_REFERENCE_FILE = "/home/labs/pilpel/avivro/workspace/data/reference_vari
 
 
 def wait_for_results(counter_directory,counter_file_list):
-    print counter_directory
-
-    count =  len([name for name in os.listdir(counter_directory) if os.path.isfile(name)])
+    # count =  len([name for name in os.listdir(counter_directory) if os.path.isfile(name)])
+    count =  len(os.listdir(counter_directory))
     while count < len(counter_file_list):
-        count =  len([name for name in os.listdir(counter_directory) if os.path.isfile(name)])
+        # count =  len([name for name in os.listdir(counter_directory) if os.path.isfile(name)])
+        count =  len(os.listdir(counter_directory))
+        print count
     success_counter = 0
     for filename in os.listdir(counter_directory):
-        if os.path.isfile(filename):
-            open_file = open(filename,'rb')
-            for line in open_file:
-                if text.find('run completed'):
-                    success_counter = success_counter + 1
+        open_file = open(counter_directory + filename,'rb')
+        for line in open_file:
+            if line.find('run completed')>-1:
+                success_counter = success_counter + 1
     if success_counter == len(counter_file_list):
         return True
 
@@ -43,8 +43,12 @@ def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, home_dir = DEFAULT_HOME_DIR, ref_fi
 
     #dictionary for end result of table with bin to variant frequencies
     date_time =  (time.strftime("%d-%m-%y-%H%M"))
+    all_results_dir = home_dir + 'results_' + date_time + '/'
+    if not os.path.exists(all_results_dir):
+          os.makedirs(all_results_dir)
 
-    counter_directory = home_dir + 'counter' + date_time + '/'
+
+    counter_directory = all_results_dir + 'counter' + date_time + '/'
     if not os.path.exists(counter_directory):
           os.makedirs(counter_directory)
 
@@ -75,7 +79,7 @@ def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, home_dir = DEFAULT_HOME_DIR, ref_fi
 
         if len(files) > 0:
             bin_name = bins[walk_count-1]
-            res_dir = home_dir + 'results_' + date_time + '/' + bin_name + '_results_' + date_time + '/'
+            res_dir = all_results_dir + bin_name + '_results_' + date_time + '/'
             if not os.path.exists(res_dir):
                 os.makedirs(res_dir)
             res_file = res_dir + bin_name + '_frequency_' + date_time +'.csv'
@@ -86,7 +90,7 @@ def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, home_dir = DEFAULT_HOME_DIR, ref_fi
             summary_files_list.append(summary_file)
             counter_file = counter_directory + bin_name + '_counter_' + date_time +'.txt'
             counter_file_list.append(counter_file)
-            command = ' '.join(['bsub -R "rusage[mem=4000]" -o' ,counter_file,"-q new-all.q /apps/RH6U4/blcr/0.8.5/bin/cr_run python ./ngs_pipeline.py",
+            command = ' '.join(['bsub -R "rusage[mem=4000]" -N -o' ,counter_file,"-q new-all.q /apps/RH6U4/blcr/0.8.5/bin/cr_run python ./ngs_pipeline.py",
                 bin_name, root, home_dir, ref_file,res_file ,  discarded_trim_file , discarded_variant_file ,summary_file])
             print command
             subprocess.call(command, shell = True)
@@ -95,12 +99,12 @@ def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, home_dir = DEFAULT_HOME_DIR, ref_fi
     success = wait_for_results(counter_directory,counter_file_list)
 
     if success:
-        collect_all_results(home_dir,result_files_list,summary_files_list)
+        collect_all_results(date_time,all_results_dir,result_files_list,summary_files_list)
     else:
         print 'run failed'
 
-def collect_all_results(home_dir,result_files_list,summary_files_list):
-    final_result_directory = home_dir + 'final_result' + date_time + '/'
+def collect_all_results(date_time,all_results_dir,result_files_list,summary_files_list):
+    final_result_directory = all_results_dir + 'final_result' + date_time + '/'
     if not os.path.exists(final_result_directory):
       os.makedirs(final_result_directory)
     final_result_csv_location = final_result_directory + 'final_result_' + date_time + '.csv'
@@ -111,11 +115,11 @@ def collect_all_results(home_dir,result_files_list,summary_files_list):
         result_csvs.append(csv.reader(open(result_file,'rb')))
     for line in first_result_csv:
         row = []
-        row.append(line)
-        for csv in result_csvs:
-            csv.next()
-            row.append(csv[1])
-            final_result_csv.write(row)
+        row= line
+        for result_csv in result_csvs:
+            result_line = result_csv.next()
+            row.append(result_line[1])
+            final_result_csv.writerow(row)
     final_summary_csv_location = final_result_directory + 'final_summary_' + date_time + '.csv'
     final_summary_csv = csv.writer(open(final_summary_csv_location,'wb'))
     first_summary_csv = csv.reader(open(summary_files_list[0],'rb'))
@@ -124,11 +128,19 @@ def collect_all_results(home_dir,result_files_list,summary_files_list):
         summary_csvs.append(csv.reader(open(summary_file,'rb')))
     for line in first_summary_csv:
         row = []
-        row.append(line)
-        for csv in summary_csvs:
-            csv.next()
-            row.append(csv[1])
-            final_summary_csv.write(row)
+        row = line
+        for summary_csv in summary_csvs:
+            sumamry_line = summary_csv.next()
+            row.append(sumamry_line[1])
+            final_summary_csv.writerow(row)
 
 if __name__ == "__main__":
     go_over_bins()
+    # date_time = '19-04-15-1259'
+    # all_results_dir = "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1259/"
+    # result_file_list = ['/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1259/D_8_results_19-04-15-1259/D_8_frequency_19-04-15-1259.csv',
+    #                     '/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1259/1_anc_results_19-04-15-1259/1_anc_frequency_19-04-15-1259.csv']
+    # summary_file_list =['/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1259/D_8_results_19-04-15-1259/D_8_summary_19-04-15-1259.txt',
+    #                     '/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1259/1_anc_results_19-04-15-1259/1_anc_summary_19-04-15-1259.txt']
+
+    # collect_all_results(date_time,all_results_dir,result_file_list,summary_file_list)

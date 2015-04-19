@@ -12,7 +12,7 @@ import getopt
 import sys
 sys.path.append("/home/labs/pilpel/avivro/python_modules/")
 import swalign
-
+from os import path
 
 
 #primers act as the adapters in the seqprep tool, need to see how this acts with umi's
@@ -135,6 +135,8 @@ def trim_all_merged_sequences(bin, merged_seq_file_location):
     trimmed_merged_seq_file_location = merged_seq_file_location[:-7] + 'T.fq'
     #open file as csv writer
     trimmed_merged_seq_csv = csv.writer(open(trimmed_merged_seq_file_location, 'wb'))
+
+
     for record in SeqIO.parse(merged_seq_file, "fastq"):
         #open as fastq send to trim method and write to csv so we also have the bin and record name for discarded records
         trimmed_seq = trim_to_restricition_site(str(record.seq))
@@ -179,25 +181,14 @@ def run_seqprep(file_set,location,file_number,bin,all_reads,merged_reads,
         , stdout=subprocess.PIPE,stderr=subprocess.PIPE, )
         output = pipe.communicate()[1]
         output_file = StringIO.StringIO(output)
-        # output_file = open(output_dir + "subprocess_out",'rb')
-        # print ' '.join([
-        # 'SeqPrep',
-        # '-f', file_set['F'],
-        # '-r', file_set['R'],
-        # '-1', f_prefix[:-6]+'.fq.gz',
-        # '-2', r_prefix[:-6]+'.fq.gz',
-        # '-3', f_prefix[:-6]+'.disc.fq.gz',
-        # '-4', r_prefix[:-6]+'.disc.fq.gz',
-        # '-s', merged_result_file,
-        # # '-A', adapter_1, '-B', adapter_2,
         for line in output_file:
             if line.find('Pairs Processed:')> -1:
-                print 'in pairs processed!!!'
-                print line.replace('Pairs Processed:','').strip()
+                # print 'in pairs processed!!!'
+                # print line.replace('Pairs Processed:','').strip()
                 all_reads =  all_reads + int(line.replace('Pairs Processed:','').strip())
             if line.find('Pairs Merged:')>-1:
-                print 'in pairs processed!!!'
-                print line.replace('Pairs Merged:','').strip()
+                # print 'in pairs processed!!!'
+                # print line.replace('Pairs Merged:','').strip()
                 merged_reads = merged_reads + int(line.replace('Pairs Merged:','').strip())
         # '-X', '1', '-g', '-L', '5'])
 
@@ -250,11 +241,13 @@ def bin_variant_frequency(bin_name,location,ref_file,discarded_trim_file,discard
 
     #create a list for the files that will be merged which is the size of all the R F pairs but starting from 1
     files = []
-    for filename in os.listdir(location):
-        if os.path.isfile(filename):
-            files.append(filename)
+    files = os.listdir(location)
+
 
     reference_dictionary = load_reference_dict(ref_file)
+    result_dir = path.dirname(discarded_trim_file)
+    if not os.path.exists(result_dir):
+                os.makedirs(result_dir)
     discarded_trim_csv  = csv.writer(open(discarded_trim_file + '.csv','wb'))
     discarded_trim_fasta = open(discarded_trim_file + '.fq','wb')
     discarded_variant_csv = csv.writer(open(discarded_variant_file + '.csv','wb'))
@@ -264,6 +257,8 @@ def bin_variant_frequency(bin_name,location,ref_file,discarded_trim_file,discard
 
     #go over all the files
     for file in files:
+        if file == 'out':
+            continue
         #split the file in order to parse it
         split_file = file.split('_')
         #get the file number
@@ -464,6 +459,7 @@ def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_tr
     #     summary_file.close()
     fragment_umi_dict = {}
     trim_num = 0
+
     for record in SeqIO.parse(open(merged_seq_file_location,'rb'),'fastq'):
         # all = all + 1
         # print '+++++++++++stragith attempt+++++++++++'
@@ -553,15 +549,16 @@ def main(argv):
     # summary_file =home_dir  + argv[7]
 
     bin_name =  argv[0]
-    home_dir = argv[1]
-    ref_file = home_dir + argv[2]
-    res_file = res_dir  + argv[4]
-    discarded_trim_file = res_dir  + argv[5]
-    discarded_variant_file= res_dir  + argv[6]
-    summary_file =res_dir  + argv[7]
+    bin_location = argv[1]
+    home_dir = argv[2]
+    ref_file = argv[3]
+    res_file = argv[4]
+    discarded_trim_file = argv[5]
+    discarded_variant_file= argv[6]
+    summary_file = argv[7]
 
     # go_over_bins(bin_dir,res_dir,ref_file,res_file,discarded_trim_file,discarded_variant_file,summary_file,)
-    design_frequency = bin_variant_frequency(bin_name,location,ref_file,discarded_trim_file,discarded_variant_file,summary_file)
+    design_frequency = bin_variant_frequency(bin_name,bin_location,ref_file,discarded_trim_file,discarded_variant_file,summary_file)
     result_csv = csv.writer(open(res_file,'wb'))
     result_csv.writerow(['',bin_name])
     for design,frequency in design_frequency.items():

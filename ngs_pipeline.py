@@ -422,29 +422,29 @@ def align_and_trim_primers(seq, f_primer = DEFAULT_FORWARD_PRIMER, r_primer = DE
                     fragment_end =r_alignment.q_pos
                     fragment = seq[fragment_start:fragment_end]
                     if len(fragment) <= design_max_length and len(fragment) >= design_min_length:
-                        return str(umi),str(fragment)
+                        return (str(umi),str(fragment)),0
                     else:
                         # print len(fragment)
                         # print f_alignment.dump()
                         # print r_alignment.dump()
                         # print 'fragment not correct length',umi, r_shift_overhang,str(fragment)
-                        return 'fragment not correct length',umi, r_shift_overhang,str(fragment)
+                        return ('fragment not correct length',umi, r_shift_overhang,str(fragment)),5
                 else:
                     # print r_alignment.dump()
                     # print 'reverse shift overhang not correct length',umi, r_shift_overhang,str(seq)
-                    return 'reverse shift overhang not correct length',umi, r_shift_overhang,str(seq)
+                    return ('reverse shift overhang not correct length',umi, r_shift_overhang,str(seq)),4
             else:
                 # print f_alignment.dump()
                 # print 'reverse primer alignment not full',umi, r_shift_overhang,str(seq)
-                return 'reverse primer alignment not full',umi, r_shift_overhang,str(seq)
+                return ('reverse primer alignment not full',umi, r_shift_overhang,str(seq)),3
         else:
             # print f_alignment.dump()
             # print 'UMI not correct length',umi, r_shift_overhang,str(seq)
-            return 'UMI not correct length',umi, r_shift_overhang,str(seq)
+            return ('UMI not correct length',umi, r_shift_overhang,str(seq)),2
     else:
         # print f_alignment.dump()
         # print 'forward primer alignment not full',umi, r_shift_overhang,str(seq)
-        return 'forward primer alignment not full',umi, r_shift_overhang,str(seq)
+        return ('forward primer alignment not full',umi, r_shift_overhang,str(seq)),1
 
 
 def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_trim_fasta,trimmed_reads):
@@ -463,10 +463,18 @@ def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_tr
     for record in SeqIO.parse(open(merged_seq_file_location,'rb'),'fastq'):
         # all = all + 1
         # print '+++++++++++stragith attempt+++++++++++'
-        trimmed = align_and_trim_primers(record.seq)
+        trimmed,fail_stage = align_and_trim_primers(record.seq)
         if len(trimmed)>2:
             # print '------------------reverse attempt------------------'
-            trimmed = align_and_trim_primers(record.seq.reverse_complement())
+            rev_trimmed,rev_fail_stage = align_and_trim_primers(record.seq.reverse_complement())
+            if rev_trimmed == 2:
+                trimmed = rev_trimmed
+            else:
+                if fail_stage > rev_fail_stage:
+                    fail = trimmed
+                else:
+                    fail = rev_trimmed
+
         if len(trimmed)==2:
             # print '==================== SUCCSESS ===================='
             trim_num = trim_num + 1
@@ -484,7 +492,7 @@ def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_tr
             # print '~~~~~~~~~~~~~~~~~~~~~~ failure ~~~~~~~~~~~~~~~~~~~~~~'
 
             SeqIO.write(record,discarded_trim_fasta,'fastq')
-            discarded_trim_csv.writerow([bin] + [trimmed])
+            discarded_trim_csv.writerow([bin] + [fail])
     # summary_file = open(summary_file_location,'wb')
     # summary_file.write(str(str(all)) +'\n')
     # summary_file.write(str(str(trim_num)) +'\n')
@@ -547,7 +555,7 @@ def main(argv):
     # discarded_trim_file = home_dir  + argv[5]
     # discarded_variant_file= home_dir  + argv[6]
     # summary_file =home_dir  + argv[7]
-
+    #
     bin_name =  argv[0]
     bin_location = argv[1]
     home_dir = argv[2]
@@ -564,8 +572,6 @@ def main(argv):
     for design,frequency in design_frequency.items():
         result_csv.writerow([design,frequency])
     print 'run completed'
-
-
 
 if __name__ == "__main__":
     #call main giving arguments as so 1-home directory 2-reference file name 3-bin directory 4-result directory

@@ -20,13 +20,12 @@ def wait_for_results(counter_directory,counter_file_list):
     while count < len(counter_file_list):
         # count =  len([name for name in os.listdir(counter_directory) if os.path.isfile(name)])
         count =  len(os.listdir(counter_directory))
-        print count
     success_counter = 0
     for filename in os.listdir(counter_directory):
         open_file = open(counter_directory + filename,'rb')
-        for line in open_file:
-            if line.find('run completed')>-1:
-                success_counter = success_counter + 1
+        line = open_file.read()
+        if line.find('run completed')>-1:
+            success_counter = success_counter + 1
     if success_counter == len(counter_file_list):
         return True
 
@@ -136,6 +135,10 @@ def collect_all_results(date_time,all_results_dir,result_files_list,summary_file
 
 if __name__ == "__main__":
     go_over_bins()
+    # counter_directory = "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1632/counter19-04-15-1632/"
+    # counter_file_list =    ["/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1632/counter19-04-15-1632/D_8_counter_19-04-15-1632.txt",
+    #  "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1632/counter19-04-15-1632/1_anc_counter_19-04-15-1632.txt"]
+    # print wait_for_results(counter_directory,counter_file_list)
     # date_time = '19-04-15-1259'
     # all_results_dir = "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1259/"
     # result_file_list = ['/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1259/D_8_results_19-04-15-1259/D_8_frequency_19-04-15-1259.csv',

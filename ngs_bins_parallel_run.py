@@ -5,11 +5,11 @@ import time
 import csv
 import os
 
-DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/"
-DEFAULT_BIN_DIR = DEFAULT_HOME_DIR + 'bins/'
+# DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/"
+# DEFAULT_BIN_DIR = DEFAULT_HOME_DIR + 'bins/'
 
-# DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_raw_data/150330_D00257_0179_AC6FFDANXX/"
-# DEFAULT_BIN_DIR = DEFAULT_HOME_DIR + 'Unaligned_fastq/'
+DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_raw_data/150330_D00257_0179_AC6FFDANXX/"
+DEFAULT_BIN_DIR = DEFAULT_HOME_DIR + 'Unaligned_fastq/'
 
 DEFAULT_REFERENCE_FILE = "/home/labs/pilpel/avivro/workspace/data/reference_variant_full_sequences.tab"
 
@@ -21,6 +21,7 @@ def wait_for_results(counter_directory,counter_file_list):
         # count =  len([name for name in os.listdir(counter_directory) if os.path.isfile(name)])
         count =  len(os.listdir(counter_directory))
     success_counter = 0
+    time.sleep(5)
     for filename in os.listdir(counter_directory):
         open_file = open(counter_directory + filename,'rb')
         line = open_file.read()
@@ -92,15 +93,15 @@ def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, home_dir = DEFAULT_HOME_DIR, ref_fi
             command = ' '.join(['bsub -R "rusage[mem=4000]" -N -o' ,counter_file,"-q new-all.q /apps/RH6U4/blcr/0.8.5/bin/cr_run python ./ngs_pipeline.py",
                 bin_name, root, home_dir, ref_file,res_file ,  discarded_trim_file , discarded_variant_file ,summary_file])
             print command
-            subprocess.call(command, shell = True)
-    print result_files_list
-    print summary_files_list
-    success = wait_for_results(counter_directory,counter_file_list)
-
-    if success:
-        collect_all_results(date_time,all_results_dir,result_files_list,summary_files_list)
-    else:
-        print 'run failed'
+            # subprocess.call(command, shell = True)
+    # print result_files_list
+    # print summary_files_list
+    # # # success = wait_for_results(counter_directory,counter_file_list)
+    #
+    # if success:
+    #     collect_all_results(date_time,all_results_dir,result_files_list,summary_files_list)
+    # else:
+    #     print 'run failed'
 
 def collect_all_results(date_time,all_results_dir,result_files_list,summary_files_list):
     final_result_directory = all_results_dir + 'final_result' + date_time + '/'

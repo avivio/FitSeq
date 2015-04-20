@@ -6,15 +6,12 @@ import re
 from Bio import SeqIO
 import gzip
 from Bio.Seq import Seq
-from Bio import pairwise2
 import csv
-import getopt
 import sys
-sys.path.append("/home/labs/pilpel/avivro/python_modules/")
 import swalign
 from os import path
-
-
+import shelve
+import time
 #primers act as the adapters in the seqprep tool, need to see how this acts with umi's
 # DEFAULT_FORWARD_PRIMER='NNNNNNNNNCAGCTCTTCGCCTTTACGCATATG' with UMI
 DEFAULT_FORWARD_PRIMER='CAGCTCTTCGCCTTTACGCATATG'
@@ -208,7 +205,7 @@ def count_variants(bin,fragment_umi_record_dict,reference_dictionary, discarded_
 
 
 
-    for fragment,umi_dict in fragment_umi_record_dict.items():
+    for fragment,umi_dict in fragment_umi_record_dict.iteritems():
         #parse bin, sequnce name in sequencing output file and sequence from the csv
         umi_record_dict = umi_dict['umi_dict']
         umi_set = set(umi_record_dict.keys())
@@ -395,6 +392,57 @@ def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, result_dir = DEFAULT_RESULT_DIR, re
     #     #create a matrix with variants as rows and bins as columns
         result_csv.writerow( variant_freq_list)
 
+def align_and_trim_primers_nosw(seq, f_primer = DEFAULT_FORWARD_PRIMER, r_primer = DEFAULT_REVERSE_PRIMER,
+                           sw = DEFAULT_SW_ALIGN , umi_length = DEFAULT_UMI_LENGTH,
+                           max_r_shift_length = DEFAULT_R_SHIFT_LENGTH, design_max_length = DEFAULT_DESIGN_MAX_LENGTH,
+                           design_min_length = DEFAULT_DESIGN_MIN_LENGTH ):
+    if len(seq) < umi_length + len(f_primer) + design_min_length + len(r_primer):
+        return ('entire sequence shorther than minimu possible read length','', '',str(seq)),1
+    umi = seq[:umi_length]
+    r_shift_overhang = ''
+    fragment = ''
+    read_f_primer_area = seq[umi_length:len(f_primer) + umi_length]
+    print f_primer
+    print read_f_primer_area
+    f_primer_percent_identity = get_percent_identity(f_primer,read_f_primer_area )
+    if f_primer_percent_identity < 0.05:
+        fragment_start = len(f_primer) + umi_length
+        for r_shift_length in xrange(0,max_r_shift_length+1):
+            if r_shift_length==0:
+                read_r_primer_area = seq[-len(r_primer):]
+            else:
+                read_r_primer_area = seq[-len(r_primer)-r_shift_length:-r_shift_length]
+            r_primer_percent_identity = get_percent_identity(r_primer,read_r_primer_area )
+            if r_primer_percent_identity  < 0.05:
+                fragment_end = -len(r_primer)-r_shift_length
+                fragment = seq[fragment_start:fragment_end]
+                if len(fragment) <= design_max_length and len(fragment) >= design_min_length:
+                    return (str(umi),str(fragment)),0
+                else:
+                    # print len(fragment)
+                    # print f_primer_percent_identity
+                    # print r_primer_percent_identity
+                    # print 'fragment not correct length',umi, r_shift_overhang,str(fragment)
+                    return ('fragment not correct length',umi, r_shift_overhang,str(fragment)),4
+        # print r_primer_percent_identity
+        # print 'reverse primer alignment not full',umi, r_shift_overhang,str(seq)
+        return ('reverse primer alignment not full',umi, r_shift_overhang,str(seq)),3
+    else:
+        # print f_primer_percent_identity
+        # print 'forward primer alignment not full',umi, r_shift_overhang,str(seq)
+        return ('forward primer alignment not full',umi, r_shift_overhang,str(seq)),2
+
+
+
+
+def get_percent_identity(primer, read_primer_area):
+    assert len(primer) == len(read_primer_area)
+    dif = 0
+    for index,base in enumerate(primer):
+        if base != read_primer_area[index]:
+            dif = dif + 1
+    return float(dif)/float(len(primer))
+
 
 def align_and_trim_primers(seq, f_primer = DEFAULT_FORWARD_PRIMER, r_primer = DEFAULT_REVERSE_PRIMER,
                            sw = DEFAULT_SW_ALIGN , umi_length = DEFAULT_UMI_LENGTH,
@@ -447,7 +495,7 @@ def align_and_trim_primers(seq, f_primer = DEFAULT_FORWARD_PRIMER, r_primer = DE
         return ('forward primer alignment not full',umi, r_shift_overhang,str(seq)),1
 
 
-def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_trim_fasta,trimmed_reads):
+def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_trim_fasta,trimmed_reads,fragment_umi_dict_location):
     #todo condisder having an output to json or xml function for this because umi count is undetermined
     # if os.stat(summary_file_location).st_size == 0:
     #     all =0
@@ -457,16 +505,17 @@ def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_tr
     #     all = int(summary_file.next())
     #     trim_num = int(summary_file.next())
     #     summary_file.close()
-    fragment_umi_dict = {}
+    fragment_umi_dict = shelve.open(fragment_umi_dict_location,writeback=True)
     trim_num = 0
-
+    shelve_counter = 0
     for record in SeqIO.parse(open(merged_seq_file_location,'rb'),'fastq'):
         # all = all + 1
-        # print '+++++++++++stragith attempt+++++++++++'
-        trimmed,fail_stage = align_and_trim_primers(record.seq)
+        print '+++++++++++stragith attempt+++++++++++'
+        print record
+        trimmed,fail_stage = align_and_trim_primers_nosw(record.seq)
         if len(trimmed)>2:
-            # print '------------------reverse attempt------------------'
-            rev_trimmed,rev_fail_stage = align_and_trim_primers(record.seq.reverse_complement())
+            print '------------------reverse attempt------------------'
+            rev_trimmed,rev_fail_stage = align_and_trim_primers_nosw(record.seq.reverse_complement())
             if rev_trimmed == 2:
                 trimmed = rev_trimmed
             else:
@@ -476,20 +525,24 @@ def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_tr
                     fail = rev_trimmed
 
         if len(trimmed)==2:
-            # print '==================== SUCCSESS ===================='
+            print '==================== SUCCSESS ===================='
             trim_num = trim_num + 1
             umi,fragment = trimmed
             if fragment in fragment_umi_dict:
+                # fragment_umi_dict[fragment] = fragment_umi_dict[fragment]
                 if umi in fragment_umi_dict[fragment]['umi_dict']:
                     fragment_umi_dict[fragment]['umi_dict'][umi].append(record)
                 else:
                     fragment_umi_dict[fragment]['umi_dict'][umi] = [record]
                 fragment_umi_dict[fragment]['count'] = fragment_umi_dict[fragment]['count'] + 1
+                # fragment_umi_dict[fragment] = temp_fragment
             else:
                 fragment_umi_dict.setdefault(fragment,{'umi_dict':{umi:[record]},'count':1})
-
+            shelve_counter = shelve_counter + 1
+            if shelve_counter%100 ==0:
+                fragment_umi_dict.sync()
         else:
-            # print '~~~~~~~~~~~~~~~~~~~~~~ failure ~~~~~~~~~~~~~~~~~~~~~~'
+            print '~~~~~~~~~~~~~~~~~~~~~~ failure ~~~~~~~~~~~~~~~~~~~~~~'
 
             SeqIO.write(record,discarded_trim_fasta,'fastq')
             discarded_trim_csv.writerow([bin] + [fail])
@@ -532,9 +585,12 @@ def main(argv):
     # summary_file = open( summary_file_location ,'wb')
     # summary_file.close()
     # bin_name = '1_anc'
-    #
-    # fragment_umi_counts = get_umi_counts(bin_name,'C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\fitseq_sample_data\\1_anc.file_1.M.fq',
-    #                                      discarded_trim_csv, discarded_trim_fasta,summary_file_location)
+    # merged_seq_file_location='C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\fitseq_sample_data\\1_anc.file_1.M.fq'
+    # fragment_umi_dict_location = 'C:\\Users\\dell7\\Documents\\Tzachi\\workspace\\data\\fitseq_sample_data\\frag_umi_dict.shelve'
+    # before = time.time()
+    # fragment_umi_counts = get_umi_counts(bin_name,merged_seq_file_location,discarded_trim_csv, discarded_trim_fasta,0,fragment_umi_dict_location)
+    # print time.time()-before
+    # print fragment_umi_counts
     # reference_dictionary = load_reference_dict(reference_location = reference_location)
     # variant_frequencies = count_variants(bin_name,fragment_umi_counts,reference_dictionary,
     #                                                 discarded_variant_csv,discarded_variant_fasta)
@@ -555,6 +611,10 @@ def main(argv):
     # discarded_trim_file = home_dir  + argv[5]
     # discarded_variant_file= home_dir  + argv[6]
     # summary_file =home_dir  + argv[7]
+    # seq ='TTCTTGTTGCAGCTCTTCGCCTTTACGCATATGCGCATCGTTGGTCAGTTCCATCGGTTCAAACATCTAGTATTTCTCCTCTTTAATCGGTGGCTAGCATTATACCTAGGACTGAGCTAGCTGTCAGGGCGCGCCATGACTAAGCTTTTCATTGTC'
+    # print align_and_trim_primers(seq)
+    # print align_and_trim_primers_nosw(seq)
+    # # go_over_bins(bin_dir,res_dir,ref_file,res_file,discarded_trim_file,discarded_variant_file,summary_file,)
     #
     bin_name =  argv[0]
     bin_location = argv[1]
@@ -564,14 +624,13 @@ def main(argv):
     discarded_trim_file = argv[5]
     discarded_variant_file= argv[6]
     summary_file = argv[7]
-
-    # go_over_bins(bin_dir,res_dir,ref_file,res_file,discarded_trim_file,discarded_variant_file,summary_file,)
     design_frequency = bin_variant_frequency(bin_name,bin_location,ref_file,discarded_trim_file,discarded_variant_file,summary_file)
     result_csv = csv.writer(open(res_file,'wb'))
     result_csv.writerow(['',bin_name])
     for design,frequency in design_frequency.items():
         result_csv.writerow([design,frequency])
     print 'run completed'
+
 
 if __name__ == "__main__":
     #call main giving arguments as so 1-home directory 2-reference file name 3-bin directory 4-result directory

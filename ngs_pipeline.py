@@ -51,7 +51,7 @@ DEFAULT_DISCARDED_VARIANT_FILE = DEFAULT_RESULT_DIR + 'fitseq_sample_discarded_v
 DEFAULT_SUMMARY_FILE= DEFAULT_RESULT_DIR + 'fitseq_sample_summary.txt'
 
 
-
+DEFAULT_PRIMER_PERCENT_IDENTITY = 0.2
 DEFAULT_UMI_LENGTH = 9
 DEFAULT_R_SHIFT_LENGTH = 4
 DEFAULT_DESIGN_MAX_LENGTH = 94
@@ -152,8 +152,7 @@ def run_seqprep(file_set,location,file_number,bin,all_reads,merged_reads,
         #create output directory path
         output_dir = '/'.join([location,'out/'])
         #if the the output directory doesn't exist than create one
-        if not os.path.exists(output_dir):
-          os.makedirs(output_dir)
+
 
         #names for the forward read output file, the reverse read output file, and the merged read output file
         f_prefix = ''.join([output_dir,'output.',os.path.split(file_set['F'])[1]])
@@ -215,11 +214,10 @@ def count_variants(bin,fragment_umi_record_dict,reference_dictionary, discarded_
             reference_dictionary[str(fragment)][1] = reference_dictionary[str(fragment)][1] + len(umi_set)
         #if not check reverse complement
         elif reference_dictionary.has_key(reverse):
-            ('has  reverse key')
             reference_dictionary[reverse][1] = reference_dictionary[reverse][1] + len(umi_set)
         #else write the bin, name and sequence to discarded csv
         else:
-            for umi,record_list in umi_record_dict.items():
+            for umi,record_list in umi_record_dict.iteritems():
                 for record in record_list:
                     discarded_variant_csv.writerow([bin,record.name,fragment,umi])
                     SeqIO.write(record,discarded_variant_fasta,'fastq')
@@ -275,13 +273,22 @@ def bin_variant_frequency(bin_name,location,ref_file,discarded_trim_file,discard
         cur_dict[file_direction] = '/'.join([location,file])
 
     #create list of variant frequency the length of the number of mergable files plus one (so it starts from 1)
-    variant_frequencies = [{} for _ in xrange(len(mergable_files)+1)]
+    # variant_frequencies = [{} for _ in xrange(len(mergable_files)+1)]
 
     all_reads = 0
     merged_reads = 0
     trimmed_reads = 0
-    # if the file set doesn't have any files than don't loop
+    # create output dir and shelve for fragment umi dictionary
+    output_dir = '/'.join([location,'out/'])
+    if not os.path.exists(output_dir):
+          os.makedirs(output_dir)
+    fragment_umi_record_dict_location = output_dir + bin_name + '_fragment_umi_record_dict.shelve'
+    fragment_umi_dict = shelve.open(fragment_umi_record_dict_location,writeback=True)
+    fragment_umi_dict.clear()
+    fragment_umi_dict.close()
+
     for index,file_set in  enumerate(mergable_files):
+        # if the file set doesn't have any files than don't loop
         if len(file_set)<1:
             continue
         #take the mergable files list of sublists and run seqprep on it
@@ -289,29 +296,36 @@ def bin_variant_frequency(bin_name,location,ref_file,discarded_trim_file,discard
         #trim merged file results from seqprep
         # trimmed_merged_result_file = trim_all_merged_sequences(bin_name,merged_result_file)
         #trim merged file results from seqprep
-        fragment_umi_record_dict,trimmed_reads =  get_umi_counts(bin_name,merged_result_file,discarded_trim_csv,
-                                                                 discarded_trim_fasta,trimmed_reads)
+
+        # fragment_umi_record_dict,trimmed_reads =  get_umi_counts(bin_name,merged_result_file,discarded_trim_csv,
+        #                                                          discarded_trim_fasta,trimmed_reads,fragment_umi_record_dict_location)
+        trimmed_reads =  get_umi_counts(bin_name,merged_result_file,discarded_trim_csv,
+                                                                 discarded_trim_fasta,trimmed_reads,fragment_umi_record_dict_location)
         #take the trimmed frequencines and count the variants in each file, put the resulting dictionary in the index of the file number
-        variant_frequencies[index] = count_variants(bin_name,fragment_umi_record_dict,reference_dictionary,
+        # variant_frequencies[index] = count_variants(bin_name,fragment_umi_record_dict,reference_dictionary,
+        #                                             discarded_variant_csv,discarded_variant_fasta)
+    fragment_umi_record_dict = shelve.open(fragment_umi_record_dict_location,writeback=True)
+    variant_frequencies = count_variants(bin_name,fragment_umi_record_dict,reference_dictionary,
                                                     discarded_variant_csv,discarded_variant_fasta)
 
     #create empty dictionary to aggregate the varaint counts to one dictionary
-    bin_var_freq_dict ={}
-    #go over variant count dictionary and merge all counts to one dictionary using the keys from any one of them
-    for var_freq_dict in variant_frequencies:
-        #if this dictionary exists
-        if len(var_freq_dict.items()) > 0:
-            for variant,frequency in var_freq_dict.items():
-                #if the variant already exists in the result dict, add the value from this dict to it
-                if bin_var_freq_dict.has_key(variant):
-                    bin_var_freq_dict[variant] = bin_var_freq_dict[variant] + frequency
-                #if not create variant in the result dict
-                else:
-                    bin_var_freq_dict[variant]  = frequency
-    #print the sum of all bin counts
+    # bin_var_freq_dict ={}
+    # #go over variant count dictionary and merge all counts to one dictionary using the keys from any one of them
+    # for var_freq_dict in variant_frequencies:
+    #     #if this dictionary exists
+    #     if len(var_freq_dict.items()) > 0:
+    #         for variant,frequency in var_freq_dict.iteritems():
+    #             #if the variant already exists in the result dict, add the value from this dict to it
+    #             if bin_var_freq_dict.has_key(variant):
+    #                 bin_var_freq_dict[variant] = bin_var_freq_dict[variant] + frequency
+    #             #if not create variant in the result dict
+    #             else:
+    #                 bin_var_freq_dict[variant]  = frequency
+    # #print the sum of all bin counts
     found_variants = 0
     all_freqs = 0
-    for variant,freq in bin_var_freq_dict.items():
+    # for variant,freq in bin_var_freq_dict.iteritems():
+    for variant,freq in variant_frequencies.iteritems():
         if int(freq) > 0:
             found_variants = found_variants +1
         all_freqs = all_freqs + freq
@@ -322,7 +336,7 @@ def bin_variant_frequency(bin_name,location,ref_file,discarded_trim_file,discard
     summary_csv.writerow(['trimmed_reads',trimmed_reads])
     summary_csv.writerow(['found_variants',found_variants])
     summary_csv.writerow(['all_freqs',all_freqs])
-    return bin_var_freq_dict
+    return variant_frequencies
 
 
 
@@ -393,7 +407,7 @@ def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, result_dir = DEFAULT_RESULT_DIR, re
         result_csv.writerow( variant_freq_list)
 
 def align_and_trim_primers_nosw(seq, f_primer = DEFAULT_FORWARD_PRIMER, r_primer = DEFAULT_REVERSE_PRIMER,
-                           sw = DEFAULT_SW_ALIGN , umi_length = DEFAULT_UMI_LENGTH,
+                            umi_length = DEFAULT_UMI_LENGTH, primer_percent_identity = DEFAULT_PRIMER_PERCENT_IDENTITY,
                            max_r_shift_length = DEFAULT_R_SHIFT_LENGTH, design_max_length = DEFAULT_DESIGN_MAX_LENGTH,
                            design_min_length = DEFAULT_DESIGN_MIN_LENGTH ):
     if len(seq) < umi_length + len(f_primer) + design_min_length + len(r_primer):
@@ -402,10 +416,8 @@ def align_and_trim_primers_nosw(seq, f_primer = DEFAULT_FORWARD_PRIMER, r_primer
     r_shift_overhang = ''
     fragment = ''
     read_f_primer_area = seq[umi_length:len(f_primer) + umi_length]
-    print f_primer
-    print read_f_primer_area
     f_primer_percent_identity = get_percent_identity(f_primer,read_f_primer_area )
-    if f_primer_percent_identity < 0.05:
+    if f_primer_percent_identity < primer_percent_identity:
         fragment_start = len(f_primer) + umi_length
         for r_shift_length in xrange(0,max_r_shift_length+1):
             if r_shift_length==0:
@@ -413,7 +425,7 @@ def align_and_trim_primers_nosw(seq, f_primer = DEFAULT_FORWARD_PRIMER, r_primer
             else:
                 read_r_primer_area = seq[-len(r_primer)-r_shift_length:-r_shift_length]
             r_primer_percent_identity = get_percent_identity(r_primer,read_r_primer_area )
-            if r_primer_percent_identity  < 0.05:
+            if r_primer_percent_identity  < primer_percent_identity:
                 fragment_end = -len(r_primer)-r_shift_length
                 fragment = seq[fragment_start:fragment_end]
                 if len(fragment) <= design_max_length and len(fragment) >= design_min_length:
@@ -510,11 +522,10 @@ def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_tr
     shelve_counter = 0
     for record in SeqIO.parse(open(merged_seq_file_location,'rb'),'fastq'):
         # all = all + 1
-        print '+++++++++++stragith attempt+++++++++++'
-        print record
+        # print '+++++++++++stragith attempt+++++++++++'
         trimmed,fail_stage = align_and_trim_primers_nosw(record.seq)
         if len(trimmed)>2:
-            print '------------------reverse attempt------------------'
+            # print '------------------reverse attempt------------------'
             rev_trimmed,rev_fail_stage = align_and_trim_primers_nosw(record.seq.reverse_complement())
             if rev_trimmed == 2:
                 trimmed = rev_trimmed
@@ -525,7 +536,7 @@ def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_tr
                     fail = rev_trimmed
 
         if len(trimmed)==2:
-            print '==================== SUCCSESS ===================='
+            # print '==================== SUCCSESS ===================='
             trim_num = trim_num + 1
             umi,fragment = trimmed
             if fragment in fragment_umi_dict:
@@ -542,7 +553,7 @@ def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_tr
             if shelve_counter%100 ==0:
                 fragment_umi_dict.sync()
         else:
-            print '~~~~~~~~~~~~~~~~~~~~~~ failure ~~~~~~~~~~~~~~~~~~~~~~'
+            # print '~~~~~~~~~~~~~~~~~~~~~~ failure ~~~~~~~~~~~~~~~~~~~~~~'
 
             SeqIO.write(record,discarded_trim_fasta,'fastq')
             discarded_trim_csv.writerow([bin] + [fail])
@@ -552,10 +563,12 @@ def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_tr
     # summary_file.close()
     trimmed_reads = trimmed_reads + trim_num
 
-    for fragment, dictionary in fragment_umi_dict.items():
-        umi_set = set(dictionary['umi_dict'].keys())
-    return fragment_umi_dict, trimmed_reads
+    # for fragment, dictionary in fragment_umi_dict.iteritems():
+    #     umi_set = set(dictionary['umi_dict'].keys())
+    # return fragment_umi_dict, trimmed_reads
+    fragment_umi_dict.close()
 
+    return trimmed_reads
 
 def main(argv):
     # opts, args = getopt.getopt(argv,"bin:resd:resf:disf:fp:rp:ref:hd")
@@ -596,7 +609,7 @@ def main(argv):
     #                                                 discarded_variant_csv,discarded_variant_fasta)
     # all_freqs = 0
     # found_variants = 0
-    # for variant,freq in variant_frequencies.items():
+    # for variant,freq in variant_frequencies.iteritems():
     #     if int(freq) > 0:
     #         found_variants = found_variants +1
     #     all_freqs = all_freqs + freq
@@ -627,7 +640,7 @@ def main(argv):
     design_frequency = bin_variant_frequency(bin_name,bin_location,ref_file,discarded_trim_file,discarded_variant_file,summary_file)
     result_csv = csv.writer(open(res_file,'wb'))
     result_csv.writerow(['',bin_name])
-    for design,frequency in design_frequency.items():
+    for design,frequency in design_frequency.iteritems():
         result_csv.writerow([design,frequency])
     print 'run completed'
 

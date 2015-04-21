@@ -4,7 +4,6 @@ import subprocess
 import time
 import csv
 import os
-
 # DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/"
 # DEFAULT_BIN_DIR = DEFAULT_HOME_DIR + 'bins/'
 
@@ -94,44 +93,24 @@ def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, home_dir = DEFAULT_HOME_DIR, ref_fi
                 bin_name, root, home_dir, ref_file,res_file ,  discarded_trim_file , discarded_variant_file ,summary_file])
             print command
             subprocess.call(command, shell = True)
-    # print result_files_list
-    # print summary_files_list
-    success = wait_for_results(counter_directory,counter_file_list)
-    if success:
-        collect_all_results(date_time,all_results_dir,result_files_list,summary_files_list)
-    else:
-        print 'run failed'
-
-def collect_all_results(date_time,all_results_dir,result_files_list,summary_files_list):
     final_result_directory = all_results_dir + 'final_result' + date_time + '/'
+    print final_result_directory
     if not os.path.exists(final_result_directory):
       os.makedirs(final_result_directory)
-    final_result_csv_location = final_result_directory + 'final_result_' + date_time + '.csv'
-    final_result_csv = csv.writer(open(final_result_csv_location,'wb'))
-    first_result_csv = csv.reader(open(result_files_list[0],'rb'))
-    result_csvs = []
-    for result_file in result_files_list[1:]:
-        result_csvs.append(csv.reader(open(result_file,'rb')))
-    for line in first_result_csv:
-        row = []
-        row= line
-        for result_csv in result_csvs:
-            result_line = result_csv.next()
-            row.append(result_line[1])
-            final_result_csv.writerow(row)
-    final_summary_csv_location = final_result_directory + 'final_summary_' + date_time + '.csv'
-    final_summary_csv = csv.writer(open(final_summary_csv_location,'wb'))
-    first_summary_csv = csv.reader(open(summary_files_list[0],'rb'))
-    summary_csvs = []
-    for summary_file in summary_files_list[1:]:
-        summary_csvs.append(csv.reader(open(summary_file,'rb')))
-    for line in first_summary_csv:
-        row = []
-        row = line
-        for summary_csv in summary_csvs:
-            sumamry_line = summary_csv.next()
-            row.append(sumamry_line[1])
-            final_summary_csv.writerow(row)
+    all_result_file_location = final_result_directory + 'all_results.txt'
+    all_result_file = open(all_result_file_location,'wb')
+    all_result_file.writelines(result_files_list)
+    all_summary_file_location = final_result_directory + 'all_summaries.txt'
+    all_summary_file = open(all_summary_file_location,'wb')
+    all_summary_file.writelines(summary_files_list)
+    # print result_files_list
+    # print summary_files_list
+    # success = wait_for_results(counter_directory,counter_file_list)
+    # if success:
+    #     collect_all_results(date_time,all_results_dir,result_files_list,summary_files_list)
+    # else:
+    #     print 'run failed'
+
 
 if __name__ == "__main__":
     go_over_bins()

@@ -62,18 +62,19 @@ DEFAULT_SCORING_MATRIX = swalign.NucleotideScoringMatrix(DEFAULT_MATCH_SCORE, DE
 DEFAULT_SW_ALIGN = swalign.LocalAlignment(DEFAULT_SCORING_MATRIX)
 
 
-def load_reference_dict(reference_location = DEFAULT_REFERENCE_FILE):
+def load_reference_dict(variant_umi_dictionary_location,reference_location = DEFAULT_REFERENCE_FILE):
     #method for loading the refence file into a variant counting dictionary
     #recieves the reference file path
 
     #opens the refence file as a seqio module
     handle = open(reference_location, "rb")
-    reference_dict = {}
+    reference_dict = shelve.open(variant_umi_dictionary_location,writeback=True)
+    reference_dict.clear()
     for record in SeqIO.parse(handle, "tab") :
-        #sequences are fed into the reference dict where the id is the key and the value is a list with the id and the frequency
-        reference_dict[str(record.seq.upper().reverse_complement())] = [record.id,0]
+        #sequences are fed into the reference dict where the sequence is the key and the value is a list with the id and the frequency
+        reference_dict[str(record.seq.upper().reverse_complement())] = [record.id,set()]
     handle.close()
-    return reference_dict
+    reference_dict.close
 
 def trim_to_restricition_site(seq):
     #method to trim one sequence to the canonical restriction sites and cut it to the variable regions
@@ -225,6 +226,14 @@ def count_variants(bin,fragment_umi_record_dict,reference_dictionary, discarded_
     #take the sequnce to id:frequency dictionary and transform it to a id:frequency dictionary
     variant_count = {variant:frequency for variant, frequency in reference_dictionary.values()}
     return variant_count
+def count_variant_umis(variant_umi_dictionary_location):
+    variant_umi_dictionary = shelve.open(variant_umi_dictionary_location,writeback=True)
+    variant_count = {}
+    for variant,value in variant_umi_dictionary.iteritems():
+        variant_id = value[0]
+        variant_umi_set = value[1]
+        variant_count[variant_id] = len(variant_umi_set)
+    return variant_count
 
 
 def bin_variant_frequency(bin_name,location,ref_file,discarded_trim_file,discarded_variant_file,summary_file_location):
@@ -237,9 +246,13 @@ def bin_variant_frequency(bin_name,location,ref_file,discarded_trim_file,discard
     #create a list for the files that will be merged which is the size of all the R F pairs but starting from 1
     files = []
     files = os.listdir(location)
+    output_dir = '/'.join([location,'out/'])
+    if not os.path.exists(output_dir):
+          os.makedirs(output_dir)
+    variant_umi_dictionary_location = output_dir + bin_name + '_variant_umi_set_dictionary.shelve'
 
+    load_reference_dict(variant_umi_dictionary_location,ref_file)
 
-    reference_dictionary = load_reference_dict(ref_file)
     result_dir = path.dirname(discarded_trim_file)
     if not os.path.exists(result_dir):
                 os.makedirs(result_dir)
@@ -279,13 +292,10 @@ def bin_variant_frequency(bin_name,location,ref_file,discarded_trim_file,discard
     merged_reads = 0
     trimmed_reads = 0
     # create output dir and shelve for fragment umi dictionary
-    output_dir = '/'.join([location,'out/'])
-    if not os.path.exists(output_dir):
-          os.makedirs(output_dir)
-    fragment_umi_record_dict_location = output_dir + bin_name + '_fragment_umi_record_dict.shelve'
-    fragment_umi_dict = shelve.open(fragment_umi_record_dict_location,writeback=True)
-    fragment_umi_dict.clear()
-    fragment_umi_dict.close()
+    # fragment_umi_record_dict_location = output_dir + bin_name + '_fragment_umi_record_dict.shelve'
+    # fragment_umi_dict = shelve.open(fragment_umi_record_dict_location,writeback=True)
+    # fragment_umi_dict.clear()
+    # fragment_umi_dict.close()
 
     for index,file_set in  enumerate(mergable_files):
         # if the file set doesn't have any files than don't loop
@@ -299,14 +309,15 @@ def bin_variant_frequency(bin_name,location,ref_file,discarded_trim_file,discard
 
         # fragment_umi_record_dict,trimmed_reads =  get_umi_counts(bin_name,merged_result_file,discarded_trim_csv,
         #                                                          discarded_trim_fasta,trimmed_reads,fragment_umi_record_dict_location)
-        trimmed_reads =  get_umi_counts(bin_name,merged_result_file,discarded_trim_csv,
-                                                                 discarded_trim_fasta,trimmed_reads,fragment_umi_record_dict_location)
+        trimmed_reads =  get_umi_counts(bin_name,merged_result_file,discarded_trim_csv,discarded_trim_fasta,
+                                        trimmed_reads,variant_umi_dictionary_location,discarded_variant_csv,
+                                        discarded_variant_fasta)
         #take the trimmed frequencines and count the variants in each file, put the resulting dictionary in the index of the file number
         # variant_frequencies[index] = count_variants(bin_name,fragment_umi_record_dict,reference_dictionary,
         #                                             discarded_variant_csv,discarded_variant_fasta)
-    fragment_umi_record_dict = shelve.open(fragment_umi_record_dict_location,writeback=True)
-    variant_frequencies = count_variants(bin_name,fragment_umi_record_dict,reference_dictionary,
-                                                    discarded_variant_csv,discarded_variant_fasta)
+    variant_frequencies = count_variant_umis(variant_umi_dictionary_location)
+    # variant_frequencies = count_variants(bin_name,variant_umi_dictionary_location,reference_dictionary,
+    #                                                 discarded_variant_csv,discarded_variant_fasta)
 
     #create empty dictionary to aggregate the varaint counts to one dictionary
     # bin_var_freq_dict ={}
@@ -507,7 +518,8 @@ def align_and_trim_primers(seq, f_primer = DEFAULT_FORWARD_PRIMER, r_primer = DE
         return ('forward primer alignment not full',umi, r_shift_overhang,str(seq)),1
 
 
-def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_trim_fasta,trimmed_reads,fragment_umi_dict_location):
+def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_trim_fasta,trimmed_reads,variant_umi_dictionary_location,
+                   discarded_variant_csv,discarded_variant_fasta):
     #todo condisder having an output to json or xml function for this because umi count is undetermined
     # if os.stat(summary_file_location).st_size == 0:
     #     all =0
@@ -517,7 +529,8 @@ def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_tr
     #     all = int(summary_file.next())
     #     trim_num = int(summary_file.next())
     #     summary_file.close()
-    fragment_umi_dict = shelve.open(fragment_umi_dict_location,writeback=True)
+    # fragment_umi_dict = shelve.open(fragment_umi_dict_location,writeback=True)
+    variant_umi_dictionary = shelve.open(variant_umi_dictionary_location,writeback=True)
     trim_num = 0
     shelve_counter = 0
     for record in SeqIO.parse(open(merged_seq_file_location,'rb'),'fastq'):
@@ -539,19 +552,30 @@ def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_tr
             # print '==================== SUCCSESS ===================='
             trim_num = trim_num + 1
             umi,fragment = trimmed
-            if fragment in fragment_umi_dict:
-                # fragment_umi_dict[fragment] = fragment_umi_dict[fragment]
-                if umi in fragment_umi_dict[fragment]['umi_dict']:
-                    fragment_umi_dict[fragment]['umi_dict'][umi].append(record)
-                else:
-                    fragment_umi_dict[fragment]['umi_dict'][umi] = [record]
-                fragment_umi_dict[fragment]['count'] = fragment_umi_dict[fragment]['count'] + 1
-                # fragment_umi_dict[fragment] = temp_fragment
+            #if the reference dictionary has a variant with this sequence, count it
+            reverse = str(Seq(fragment).reverse_complement())
+            if variant_umi_dictionary.has_key(str(fragment)):
+                variant_umi_dictionary[str(fragment)][1].add(umi)
+            #if not check reverse complement
+            elif variant_umi_dictionary.has_key(reverse):
+                variant_umi_dictionary[reverse][1].add(umi)
+        #else write the bin, name and sequence to discarded csv
             else:
-                fragment_umi_dict.setdefault(fragment,{'umi_dict':{umi:[record]},'count':1})
-            shelve_counter = shelve_counter + 1
+                discarded_variant_csv.writerow([bin,record.name,fragment,umi])
+                SeqIO.write(record,discarded_variant_fasta,'fastq')
+            # if fragment in fragment_umi_dict:
+            #     # fragment_umi_dict[fragment] = fragment_umi_dict[fragment]
+            #     if umi in fragment_umi_dict[fragment]['umi_dict']:
+            #         fragment_umi_dict[fragment]['umi_dict'][umi].append(record)
+            #     else:
+            #         fragment_umi_dict[fragment]['umi_dict'][umi] = [record]
+            #     fragment_umi_dict[fragment]['count'] = fragment_umi_dict[fragment]['count'] + 1
+            #     # fragment_umi_dict[fragment] = temp_fragment
+            # else:
+            #     fragment_umi_dict.setdefault(fragment,{'umi_dict':{umi:[record]},'count':1})
+            # shelve_counter = shelve_counter + 1
             if shelve_counter%100 ==0:
-                fragment_umi_dict.sync()
+                variant_umi_dictionary.sync()
         else:
             # print '~~~~~~~~~~~~~~~~~~~~~~ failure ~~~~~~~~~~~~~~~~~~~~~~'
 
@@ -566,7 +590,7 @@ def get_umi_counts(bin, merged_seq_file_location,discarded_trim_csv,discarded_tr
     # for fragment, dictionary in fragment_umi_dict.iteritems():
     #     umi_set = set(dictionary['umi_dict'].keys())
     # return fragment_umi_dict, trimmed_reads
-    fragment_umi_dict.close()
+    variant_umi_dictionary.close()
 
     return trimmed_reads
 

@@ -93,15 +93,14 @@ def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, home_dir = DEFAULT_HOME_DIR, ref_fi
             command = ' '.join(['bsub -R "rusage[mem=4000]" -N -o' ,counter_file,"-q new-all.q /apps/RH6U4/blcr/0.8.5/bin/cr_run python ./ngs_pipeline.py",
                 bin_name, root, home_dir, ref_file,res_file ,  discarded_trim_file , discarded_variant_file ,summary_file])
             print command
-            # subprocess.call(command, shell = True)
+            subprocess.call(command, shell = True)
     # print result_files_list
     # print summary_files_list
-    # # # success = wait_for_results(counter_directory,counter_file_list)
-    #
-    # if success:
-    #     collect_all_results(date_time,all_results_dir,result_files_list,summary_files_list)
-    # else:
-    #     print 'run failed'
+    success = wait_for_results(counter_directory,counter_file_list)
+    if success:
+        collect_all_results(date_time,all_results_dir,result_files_list,summary_files_list)
+    else:
+        print 'run failed'
 
 def collect_all_results(date_time,all_results_dir,result_files_list,summary_files_list):
     final_result_directory = all_results_dir + 'final_result' + date_time + '/'

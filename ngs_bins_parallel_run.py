@@ -4,6 +4,7 @@ import subprocess
 import time
 import csv
 import os
+import sys
 # DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/"
 # DEFAULT_BIN_DIR = DEFAULT_HOME_DIR + 'bins/'
 
@@ -33,7 +34,7 @@ def wait_for_results(counter_directory,counter_file_list):
 
 
 
-def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, home_dir = DEFAULT_HOME_DIR, ref_file = DEFAULT_REFERENCE_FILE):
+def go_over_bins(record_umi_sets,bin_dir  = DEFAULT_BIN_DIR, home_dir = DEFAULT_HOME_DIR, ref_file = DEFAULT_REFERENCE_FILE):
     #go over the bin directory, parse bin name from directory names and get the file contents of each
     #create a dictionary of the variant count of each bin and the aggregate them to a matrix of varaint to count per bin
     #receives raw data directory, result directory, result file name, discarded file name
@@ -89,20 +90,22 @@ def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, home_dir = DEFAULT_HOME_DIR, ref_fi
             summary_files_list.append(summary_file)
             counter_file = counter_directory + bin_name + '_counter_' + date_time +'.txt'
             counter_file_list.append(counter_file)
+            umi_output_file = res_dir + 'umi_output/'
             command = ' '.join(['bsub -R "rusage[mem=4000]" -N -o' ,counter_file,"-q new-all.q /apps/RH6U4/blcr/0.8.5/bin/cr_run python ./ngs_pipeline.py",
-                bin_name, root, home_dir, ref_file,res_file ,  discarded_trim_file , discarded_variant_file ,summary_file])
+                bin_name, root, home_dir, ref_file,res_file ,  discarded_trim_file , discarded_variant_file ,
+                summary_file,umi_output_file,record_umi_sets])
             print command
             subprocess.call(command, shell = True)
-    final_result_directory = all_results_dir + 'final_result' + date_time + '/'
+    final_result_directory = all_results_dir + 'final_result_' + date_time + '/'
     print final_result_directory
     if not os.path.exists(final_result_directory):
       os.makedirs(final_result_directory)
     all_result_file_location = final_result_directory + 'all_results.txt'
     all_result_file = open(all_result_file_location,'wb')
-    all_result_file.writelines(result_files_list)
+    all_result_file.write("\n".join(result_files_list))
     all_summary_file_location = final_result_directory + 'all_summaries.txt'
     all_summary_file = open(all_summary_file_location,'wb')
-    all_summary_file.writelines(summary_files_list)
+    all_summary_file.write("\n".join(summary_files_list))
     # print result_files_list
     # print summary_files_list
     # success = wait_for_results(counter_directory,counter_file_list)
@@ -113,7 +116,8 @@ def go_over_bins(bin_dir  = DEFAULT_BIN_DIR, home_dir = DEFAULT_HOME_DIR, ref_fi
 
 
 if __name__ == "__main__":
-    go_over_bins()
+    record_umi_sets = sys.argv[1]
+    go_over_bins(record_umi_sets)
     # counter_directory = "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1632/counter19-04-15-1632/"
     # counter_file_list =    ["/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1632/counter19-04-15-1632/D_8_counter_19-04-15-1632.txt",
     #  "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1632/counter19-04-15-1632/1_anc_counter_19-04-15-1632.txt"]

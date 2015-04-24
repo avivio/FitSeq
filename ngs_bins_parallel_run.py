@@ -5,128 +5,121 @@ import time
 import csv
 import os
 import sys
+
+#the location of the sample directory and the home directory for runs on the sample test set
 # DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/"
-# DEFAULT_BIN_DIR = DEFAULT_HOME_DIR + 'bins/'
+# DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'bins/'
 
+#the location of the sample directory and the home directory for runs on the fitseq raw data
 DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_raw_data/150330_D00257_0179_AC6FFDANXX/"
-DEFAULT_BIN_DIR = DEFAULT_HOME_DIR + 'Unaligned_fastq/'
+DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'Unaligned_fastq/'
 
+#the location of the reference table
 DEFAULT_REFERENCE_FILE = "/home/labs/pilpel/avivro/workspace/data/reference_variant_full_sequences.tab"
 
 
-def wait_for_results(counter_directory,counter_file_list):
-    # count =  len([name for name in os.listdir(counter_directory) if os.path.isfile(name)])
-    count =  len(os.listdir(counter_directory))
-    while count < len(counter_file_list):
-        # count =  len([name for name in os.listdir(counter_directory) if os.path.isfile(name)])
-        count =  len(os.listdir(counter_directory))
-    success_counter = 0
-    time.sleep(5)
-    for filename in os.listdir(counter_directory):
-        open_file = open(counter_directory + filename,'rb')
-        line = open_file.read()
-        if line.find('run completed')>-1:
-            success_counter = success_counter + 1
-    if success_counter == len(counter_file_list):
-        return True
+def go_over_samples(record_umi_sets,sample_dir  = DEFAULT_BIN_DIR, home_dir = DEFAULT_HOME_DIR, ref_file = DEFAULT_REFERENCE_FILE):
+    #runs over the files in the bin directory and sends each to be processed as a separete job on wexac
+    #receives raw data directory, the home directory of the entire pipeline and the location of the reference file
+    #returns nothing but creates two files in the final result directory containing lists of the result and summary file locations
 
-
-
-
-
-def go_over_bins(record_umi_sets,bin_dir  = DEFAULT_BIN_DIR, home_dir = DEFAULT_HOME_DIR, ref_file = DEFAULT_REFERENCE_FILE):
-    #go over the bin directory, parse bin name from directory names and get the file contents of each
-    #create a dictionary of the variant count of each bin and the aggregate them to a matrix of varaint to count per bin
-    #receives raw data directory, result directory, result file name, discarded file name
-    # can think of creating third dimension for seperating time point and repeat maybe better to do straigh in R
-    # or do that by writing a list in one of the each of the csv cells
-
-    #dictionary for end result of table with bin to variant frequencies
+    #date time string for tracking files
     date_time =  (time.strftime("%d-%m-%y-%H%M"))
+
+    #create the directory to store all the results fot this run
     all_results_dir = home_dir + 'results_' + date_time + '/'
     if not os.path.exists(all_results_dir):
           os.makedirs(all_results_dir)
 
-
+    #directory storing all the output files of each run, so they can be counted at the end and see how many returned
     counter_directory = all_results_dir + 'counter' + date_time + '/'
     if not os.path.exists(counter_directory):
           os.makedirs(counter_directory)
 
-
-    bin_freq_dict = {}
+    #lists of the files that need to be procesessed after the run
     result_files_list = []
     summary_files_list = []
     counter_file_list = []
 
 
-    #counting which point we are at in the walk
+    #counting which point we are at in the walk over all the directories in the sample directory
     walk_count = -1
-    for root, dirs, files in os.walk(bin_dir, followlinks=True):
+    #walking over the sample directory
+    for root, dirs, files in os.walk(sample_dir, followlinks=True):
         #if the directory we're on is one of the working output directories than skip it
         if os.path.split(root)[1] == 'out':
             continue
 
         walk_count = walk_count + 1
-        #if the walk count is zero then we are at the top level and should be parsing the bin names
+        #if the walk count is zero then we are at the top level and should be parsing the sample names
         if walk_count == 0:
-            bins = []
+            samples = []
             for dir in dirs:
-                #take the directory name and parse out the bin name, put it in the bin name list which we will use later
-                bin_name = '_'.join(dir.split('_')[1:])
-                bins.append(bin_name)
-                # bin_freq_dict[bin_name] = variant_frequency(bin_name, )
-        # if there are files in the file list this means we are inside a bin and should be running the variant count
+                #take the directory name and parse out the sample name, put it in the sample name list which we will use later
+                sample_name = '_'.join(dir.split('_')[1:])
+                samples.append(sample_name)
 
+
+        # if there are files in the file list this means we are inside a sample and should be running the design count
         if len(files) > 0:
-            bin_name = bins[walk_count-1]
-            res_dir = all_results_dir + bin_name + '_results_' + date_time + '/'
+            #the sample name is the name before this walk went into the direcotry of the sample
+            sample_name = samples[walk_count-1]
+            #create the result directory fot this sample
+            res_dir = all_results_dir + sample_name + '_results_' + date_time + '/'
             if not os.path.exists(res_dir):
                 os.makedirs(res_dir)
-            res_file = res_dir + bin_name + '_frequency_' + date_time +'.csv'
+            #create the result file where we'll record the design frequencies for this sample
+            res_file = res_dir + sample_name + '_frequency_' + date_time +'.csv'
+
+            # add the file location to the result file list
             result_files_list.append(res_file)
-            discarded_trim_file = res_dir + bin_name + '_discarded_trimmed_' + date_time
-            discarded_variant_file = res_dir + bin_name + '_discarded_variant_' + date_time
-            summary_file = res_dir + bin_name + '_summary_' + date_time +'.txt'
+
+            #create discarded read file names for the reads discarded at trim stage and at match to design stage
+            discarded_trim_file = res_dir + sample_name + '_discarded_trimmed_' + date_time
+            discarded_match_file = res_dir + sample_name + '_discarded_match_' + date_time
+
+            #create the summary file where we write the run stats, then add the file to the list of locations
+            summary_file = res_dir + sample_name + '_summary_' + date_time +'.txt'
             summary_files_list.append(summary_file)
-            counter_file = counter_directory + bin_name + '_counter_' + date_time +'.txt'
+
+            #the counter file is in fact the log file where the run output is directed too
+            counter_file = counter_directory + sample_name + '_counter_' + date_time +'.txt'
             counter_file_list.append(counter_file)
+
+            #the umi output directory is where the fastas of each designs umis are written to if the user requires it
             umi_output_file = res_dir + 'umi_output/'
-            command = ' '.join(['bsub -R "rusage[mem=4000]" -N -o' ,counter_file,"-q new-all.q /apps/RH6U4/blcr/0.8.5/bin/cr_run python ./ngs_pipeline.py",
-                bin_name, root, home_dir, ref_file,res_file ,  discarded_trim_file , discarded_variant_file ,
+
+            #create the command for the wexac run by joining all the params together
+            # for more memory -R "rusage[mem=4000]" change 4000 to how much memory you want
+            # -N is to send the email at the end of the run -o it to write to a new output file which is in fact the counter logfile
+            # the params for the python script are the sample anme, the root as the sample directory, home directory,
+            # the reference file, the result file location, the discarded file location, the summary file location,
+            #the umi output direcotry, and a boolean if needed to record the umi output
+            command = ' '.join(['bsub  -N -o' ,counter_file,"-q new-all.q /apps/RH6U4/blcr/0.8.5/bin/cr_run python ./ngs_pipeline.py",
+                sample_name, root, home_dir, ref_file,res_file ,  discarded_trim_file , discarded_match_file ,
                 summary_file,umi_output_file,record_umi_sets])
+
+            #print and send the command to the shell
             print command
             subprocess.call(command, shell = True)
+
+    #create the directory where the final results will be collected
     final_result_directory = all_results_dir + 'final_result_' + date_time + '/'
     print final_result_directory
     if not os.path.exists(final_result_directory):
       os.makedirs(final_result_directory)
+
+    #write the list of both the resutl file locations and the summary file locations to the directory by joining the list on the return character
     all_result_file_location = final_result_directory + 'all_results.txt'
     all_result_file = open(all_result_file_location,'wb')
     all_result_file.write("\n".join(result_files_list))
     all_summary_file_location = final_result_directory + 'all_summaries.txt'
     all_summary_file = open(all_summary_file_location,'wb')
     all_summary_file.write("\n".join(summary_files_list))
-    # print result_files_list
-    # print summary_files_list
-    # success = wait_for_results(counter_directory,counter_file_list)
-    # if success:
-    #     collect_all_results(date_time,all_results_dir,result_files_list,summary_files_list)
-    # else:
-    #     print 'run failed'
 
 
 if __name__ == "__main__":
+    #recieves a boolean value if you want to record the strings of the umis of every design to fasta files
     record_umi_sets = sys.argv[1]
-    go_over_bins(record_umi_sets)
-    # counter_directory = "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1632/counter19-04-15-1632/"
-    # counter_file_list =    ["/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1632/counter19-04-15-1632/D_8_counter_19-04-15-1632.txt",
-    #  "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1632/counter19-04-15-1632/1_anc_counter_19-04-15-1632.txt"]
-    # print wait_for_results(counter_directory,counter_file_list)
-    # date_time = '19-04-15-1259'
-    # all_results_dir = "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1259/"
-    # result_file_list = ['/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1259/D_8_results_19-04-15-1259/D_8_frequency_19-04-15-1259.csv',
-    #                     '/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1259/1_anc_results_19-04-15-1259/1_anc_frequency_19-04-15-1259.csv']
-    # summary_file_list =['/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1259/D_8_results_19-04-15-1259/D_8_summary_19-04-15-1259.txt',
-    #                     '/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/results_19-04-15-1259/1_anc_results_19-04-15-1259/1_anc_summary_19-04-15-1259.txt']
-
-    # collect_all_results(date_time,all_results_dir,result_file_list,summary_file_list)
+    #runs the go over samples method
+    go_over_samples(record_umi_sets)

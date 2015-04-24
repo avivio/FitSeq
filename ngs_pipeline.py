@@ -230,20 +230,35 @@ def count_variants(bin,fragment_umi_record_dict,reference_dictionary, discarded_
     #take the sequnce to id:frequency dictionary and transform it to a id:frequency dictionary
     variant_count = {variant:frequency for variant, frequency in reference_dictionary.values()}
     return variant_count
-def count_variant_umis(variant_umi_dictionary):
+def count_variant_umis(variant_umi_dictionary,umi_output_location,record_umi_sets = False):
     # variant_umi_dictionary = shelve.open(variant_umi_dictionary_location,writeback=True)
     variant_count = {}
     for variant,value in variant_umi_dictionary.iteritems():
         variant_id = value[0]
         variant_umi_set = value[1]
-        if len(variant_umi_set) > 0:
-            print variant_id
-            print variant_umi_set
+        if record_umi_sets:
+            write_umi_set(variant_id,variant_umi_set,umi_output_location)
+        # if len(variant_umi_set) > 0:
+        #     print variant_id
+        #     print variant_umi_set
         variant_count[variant_id] = len(variant_umi_set)
     return variant_count
 
+def write_umi_set(variant_id,variant_umi_set,umi_output_location):
+    if not os.path.exists(umi_output_location):
+        os.makedirs(umi_output_location)
+    umi_file_name = umi_output_location + variant_id + '_umi_output.fa'
+    umi_file = open(umi_file_name,'wb')
+    for index, umi in enumerate(variant_umi_set):
+        title = '>' + 'umi_' + str(index) + '_' + umi + "\n"
+        umi_file.write(title)
+        umi_file.write(umi  + "\n")
 
-def bin_variant_frequency(bin_name,location,ref_file,discarded_trim_file,discarded_variant_file,summary_file_location):
+
+
+
+def bin_variant_frequency(bin_name,location,ref_file,discarded_trim_file,discarded_variant_file,summary_file_location,
+                          umi_output_location,record_umi_sets):
     #method that goes over the contents of a directory finds F R file pairs and sends them to be merged, trimemed and
     #counted. this method will return a dictionary of variant ids and numbers of counts for a bin
     #receives the anme of the bin, the directory of the sequncing fils. the list of files, the reference dictionary
@@ -324,7 +339,7 @@ def bin_variant_frequency(bin_name,location,ref_file,discarded_trim_file,discard
         #take the trimmed frequencines and count the variants in each file, put the resulting dictionary in the index of the file number
         # variant_frequencies[index] = count_variants(bin_name,fragment_umi_record_dict,reference_dictionary,
         #                                             discarded_variant_csv,discarded_variant_fasta)
-    variant_frequencies = count_variant_umis(variant_umi_dictionary)
+    variant_frequencies = count_variant_umis(variant_umi_dictionary, umi_output_location,record_umi_sets)
     # variant_frequencies = count_variants(bin_name,variant_umi_dictionary_location,reference_dictionary,
     #                                                 discarded_variant_csv,discarded_variant_fasta)
 
@@ -658,7 +673,11 @@ def main(argv):
     discarded_trim_file = argv[5]
     discarded_variant_file= argv[6]
     summary_file = argv[7]
-    design_frequency = bin_variant_frequency(bin_name,bin_location,ref_file,discarded_trim_file,discarded_variant_file,summary_file)
+    umi_output_location = argv[8]
+    record_umi_sets = argv[9]
+
+    design_frequency = bin_variant_frequency(bin_name,bin_location,ref_file,discarded_trim_file,discarded_variant_file,
+                                             summary_file,umi_output_location,record_umi_sets)
     result_csv = csv.writer(open(res_file,'wb'))
     result_csv.writerow(['',bin_name])
     for design,frequency in design_frequency.iteritems():

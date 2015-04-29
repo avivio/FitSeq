@@ -7,12 +7,12 @@ import os
 import sys
 
 #the location of the sample directory and the home directory for runs on the sample test set
-# DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/"
-# DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'bins/'
+DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/"
+DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'bins/'
 
 #the location of the sample directory and the home directory for runs on the fitseq raw data
-DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_raw_data/150330_D00257_0179_AC6FFDANXX/"
-DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'Unaligned_fastq/'
+# DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_raw_data/150330_D00257_0179_AC6FFDANXX/"
+# DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'Unaligned_fastq/'
 
 #the location of the reference table
 DEFAULT_REFERENCE_FILE = "/home/labs/pilpel/avivro/workspace/data/reference_variant_full_sequences.tab"

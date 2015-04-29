@@ -18,7 +18,7 @@ DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'Unaligned_fastq/'
 DEFAULT_REFERENCE_FILE = "/home/labs/pilpel/avivro/workspace/data/reference_variant_full_sequences.tab"
 
 
-def go_over_samples(record_umi_sets,sample_dir  = DEFAULT_BIN_DIR, home_dir = DEFAULT_HOME_DIR, ref_file = DEFAULT_REFERENCE_FILE):
+def go_over_samples(record_umi_sets,sample_dir  = DEFAULT_SAMPLE_DIR, home_dir = DEFAULT_HOME_DIR, ref_file = DEFAULT_REFERENCE_FILE):
     #runs over the files in the bin directory and sends each to be processed as a separete job on wexac
     #receives raw data directory, the home directory of the entire pipeline and the location of the reference file
     #returns nothing but creates two files in the final result directory containing lists of the result and summary file locations
@@ -40,7 +40,7 @@ def go_over_samples(record_umi_sets,sample_dir  = DEFAULT_BIN_DIR, home_dir = DE
     result_files_list = []
     summary_files_list = []
     counter_file_list = []
-
+    match_count_file_list = []
 
     #counting which point we are at in the walk over all the directories in the sample directory
     walk_count = -1
@@ -69,17 +69,24 @@ def go_over_samples(record_umi_sets,sample_dir  = DEFAULT_BIN_DIR, home_dir = DE
             if not os.path.exists(res_dir):
                 os.makedirs(res_dir)
             #create the result file where we'll record the design frequencies for this sample
-            res_file = res_dir + sample_name + '_frequency_' + date_time +'.csv'
+            res_file = res_dir + sample_name + '_umi_frequency_' + date_time +'.csv'
 
             # add the file location to the result file list
             result_files_list.append(res_file)
+
+            #create the result file where we'll record the design frequencies for this sample
+            match_count_file = res_dir + sample_name + '_match_count_' + date_time +'.csv'
+
+            # add the file location to the result file list
+            match_count_file_list.append(match_count_file)
+
 
             #create discarded read file names for the reads discarded at trim stage and at match to design stage
             discarded_trim_file = res_dir + sample_name + '_discarded_trimmed_' + date_time
             discarded_match_file = res_dir + sample_name + '_discarded_match_' + date_time
 
             #create the summary file where we write the run stats, then add the file to the list of locations
-            summary_file = res_dir + sample_name + '_summary_' + date_time +'.txt'
+            summary_file = res_dir + sample_name + '_summary_' + date_time +'.csv'
             summary_files_list.append(summary_file)
 
             #the counter file is in fact the log file where the run output is directed too
@@ -97,7 +104,7 @@ def go_over_samples(record_umi_sets,sample_dir  = DEFAULT_BIN_DIR, home_dir = DE
             #the umi output direcotry, and a boolean if needed to record the umi output
             command = ' '.join(['bsub  -N -o' ,counter_file,"-q new-all.q /apps/RH6U4/blcr/0.8.5/bin/cr_run python ./ngs_pipeline.py",
                 sample_name, root, home_dir, ref_file,res_file ,  discarded_trim_file , discarded_match_file ,
-                summary_file,umi_output_file,record_umi_sets])
+                summary_file,umi_output_file,record_umi_sets,match_count_file])
 
             #print and send the command to the shell
             print command
@@ -116,6 +123,10 @@ def go_over_samples(record_umi_sets,sample_dir  = DEFAULT_BIN_DIR, home_dir = DE
     all_summary_file_location = final_result_directory + 'all_summaries.txt'
     all_summary_file = open(all_summary_file_location,'wb')
     all_summary_file.write("\n".join(summary_files_list))
+    all_match_counts_file_location = final_result_directory + 'all_match_counts.txt'
+    all_match_counts_file = open(all_match_counts_file_location,'wb')
+    all_match_counts_file.write("\n".join(match_count_file_list))
+
 
 
 if __name__ == "__main__":

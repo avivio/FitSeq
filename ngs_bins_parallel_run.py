@@ -18,21 +18,22 @@ DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'bins/'
 DEFAULT_REFERENCE_FILE = "/home/labs/pilpel/avivro/workspace/data/reference_variant_full_sequences.tab"
 
 
-def go_over_samples(record_umi_sets,sample_dir  = DEFAULT_SAMPLE_DIR, home_dir = DEFAULT_HOME_DIR, ref_file = DEFAULT_REFERENCE_FILE):
+def go_over_samples(record_umi_sets,mismatches,sample_dir  = DEFAULT_SAMPLE_DIR, home_dir = DEFAULT_HOME_DIR, ref_file = DEFAULT_REFERENCE_FILE):
     #runs over the files in the bin directory and sends each to be processed as a separete job on wexac
     #receives raw data directory, the home directory of the entire pipeline and the location of the reference file
     #returns nothing but creates two files in the final result directory containing lists of the result and summary file locations
 
     #date time string for tracking files
     date_time =  (time.strftime("%d-%m-%y-%H%M"))
+    mismatch_string = '_mismatches_' + mismatches
 
     #create the directory to store all the results fot this run
-    all_results_dir = home_dir + 'results_' + date_time + '/'
+    all_results_dir = home_dir + 'results_' + date_time  + mismatch_string +'/'
     if not os.path.exists(all_results_dir):
           os.makedirs(all_results_dir)
 
     #directory storing all the output files of each run, so they can be counted at the end and see how many returned
-    counter_directory = all_results_dir + 'counter' + date_time + '/'
+    counter_directory = all_results_dir + 'counter' + date_time+ mismatch_string  + '/'
     if not os.path.exists(counter_directory):
           os.makedirs(counter_directory)
 
@@ -65,32 +66,33 @@ def go_over_samples(record_umi_sets,sample_dir  = DEFAULT_SAMPLE_DIR, home_dir =
             #the sample name is the name before this walk went into the direcotry of the sample
             sample_name = samples[walk_count-1]
             #create the result directory fot this sample
-            res_dir = all_results_dir + sample_name + '_results_' + date_time + '/'
+            res_dir = all_results_dir + sample_name + '_results_' + date_time + mismatch_string + '/'
             if not os.path.exists(res_dir):
                 os.makedirs(res_dir)
             #create the result file where we'll record the design frequencies for this sample
-            res_file = res_dir + sample_name + '_umi_frequency_' + date_time +'.csv'
+            res_file = res_dir + sample_name + '_umi_frequency_' + date_time +  mismatch_string +'.csv'
 
             # add the file location to the result file list
             result_files_list.append(res_file)
 
             #create the result file where we'll record the design frequencies for this sample
-            match_count_file = res_dir + sample_name + '_match_count_' + date_time +'.csv'
+            match_count_file = res_dir + sample_name + '_match_count_' + date_time + mismatch_string +'.csv'
 
             # add the file location to the result file list
             match_count_file_list.append(match_count_file)
 
 
             #create discarded read file names for the reads discarded at trim stage and at match to design stage
-            discarded_trim_file = res_dir + sample_name + '_discarded_trimmed_' + date_time
-            discarded_match_file = res_dir + sample_name + '_discarded_match_' + date_time
+            discarded_trim_file = res_dir + sample_name + '_discarded_trimmed_' + date_time +  mismatch_string
+            discarded_match_file = res_dir + sample_name + '_discarded_match_' + date_time +  mismatch_string
+            mismatch_file = res_dir + sample_name + '_mismatch_' + date_time +  mismatch_string
 
             #create the summary file where we write the run stats, then add the file to the list of locations
-            summary_file = res_dir + sample_name + '_summary_' + date_time +'.csv'
+            summary_file = res_dir + sample_name + '_summary_' + date_time +  mismatch_string  +'.csv'
             summary_files_list.append(summary_file)
 
             #the counter file is in fact the log file where the run output is directed too
-            counter_file = counter_directory + sample_name + '_counter_' + date_time +'.txt'
+            counter_file = counter_directory + sample_name + '_counter_' + date_time +  mismatch_string  +'.txt'
             counter_file_list.append(counter_file)
 
             #the umi output directory is where the fastas of each designs umis are written to if the user requires it
@@ -104,14 +106,14 @@ def go_over_samples(record_umi_sets,sample_dir  = DEFAULT_SAMPLE_DIR, home_dir =
             #the umi output direcotry, and a boolean if needed to record the umi output
             command = ' '.join(['bsub  -N -o' ,counter_file,"-q new-all.q /apps/RH6U4/blcr/0.8.5/bin/cr_run python ./ngs_pipeline.py",
                 sample_name, root, home_dir, ref_file,res_file ,  discarded_trim_file , discarded_match_file ,
-                summary_file,umi_output_file,record_umi_sets,match_count_file])
+                summary_file,umi_output_file,record_umi_sets,match_count_file,mismatches,mismatch_file])
 
             #print and send the command to the shell
             print command
             subprocess.call(command, shell = True)
 
     #create the directory where the final results will be collected
-    final_result_directory = all_results_dir + 'final_result_' + date_time + '/'
+    final_result_directory = all_results_dir + 'final_result_' + date_time +  mismatch_string  + '/'
     print final_result_directory
     if not os.path.exists(final_result_directory):
       os.makedirs(final_result_directory)
@@ -132,5 +134,6 @@ def go_over_samples(record_umi_sets,sample_dir  = DEFAULT_SAMPLE_DIR, home_dir =
 if __name__ == "__main__":
     #recieves a boolean value if you want to record the strings of the umis of every design to fasta files
     record_umi_sets = sys.argv[1]
+    mismatches = str(sys.argv[2])
     #runs the go over samples method
-    go_over_samples(record_umi_sets)
+    go_over_samples(record_umi_sets,mismatches)

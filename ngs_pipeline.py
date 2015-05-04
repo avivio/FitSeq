@@ -54,7 +54,7 @@ DEFAULT_DISCARDED_DESIGN_FILE = DEFAULT_RESULT_DIR + 'fitseq_sample_discarded_de
 DEFAULT_SUMMARY_FILE= DEFAULT_RESULT_DIR + 'fitseq_sample_summary.txt'
 
 #primer trimming constants
-DEFAULT_PRIMER_PERCENT_IDENTITY = 0.9
+DEFAULT_PRIMER_MISMATCH= 2
 DEFAULT_UMI_LENGTH = 9
 DEFAULT_R_SHIFT_LENGTH = 4
 DEFAULT_DESIGN_MAX_LENGTH = 94
@@ -172,16 +172,6 @@ def run_seqprep(file_set,location,file_number,sample,all_reads,merged_reads,
         #call the seqprep tool using the subprocesses library which integratges with linux os
         #paramters are the ones goodman used, could tweak them again to fit not using the primers as adapters
         #use pipe and Popen so that I can get the stderr feed and parse it to get the run stats
-        print ' '.join([
-        'SeqPrep',
-        '-f', file_set['F'],
-        '-r', file_set['R'],
-        '-1', f_prefix[:-6]+'.fq.gz',
-        '-2', r_prefix[:-6]+'.fq.gz',
-        '-3', f_prefix[:-6]+'.disc.fq.gz',
-        '-4', r_prefix[:-6]+'.disc.fq.gz',
-        '-s', merged_result_file,
-        '-X', '1', '-g', '-L', '5','-q', '17'])
 
         pipe = subprocess.Popen([
         'SeqPrep',
@@ -299,7 +289,7 @@ def write_umi_set(design_id,design_umi_set,umi_output_location):
 
 
 def sample_design_frequency(sample_name,location,ref_file,discarded_trim_file,discarded_design_file,summary_file_location,
-                          umi_output_location,record_umi_sets):
+                          umi_output_location,record_umi_sets,allowed_mismatches,mismatch_design_file):
     #method that goes over the contents of a directory finds F R file pairs and sends them to be merged, trimmed and
     #counted. this method will return a dictionary of design ids and numbers of counts for a sample
     #receives the name of the sample, the directory of the sequencing files, the reference file, the discaded files for
@@ -328,6 +318,8 @@ def sample_design_frequency(sample_name,location,ref_file,discarded_trim_file,di
     discarded_trim_fasta = open(discarded_trim_file + '.fq','wb')
     discarded_design_csv = csv.writer(open(discarded_design_file + '.csv','wb'))
     discarded_design_fasta = open(discarded_design_file + '.fq','wb')
+    mismatch_design_csv = csv.writer(open(mismatch_design_file + '.csv','wb'))
+    mismatch_design_fasta = open(mismatch_design_file + '.fq','wb')
 
     #create a list of mergable files, I have no idea how this works
     mergable_files =[{} for _ in xrange(len(files)/2 + 1)]
@@ -368,20 +360,25 @@ def sample_design_frequency(sample_name,location,ref_file,discarded_trim_file,di
         merged_result_file,all_reads, merged_reads =  run_seqprep(file_set,location,index,sample_name,all_reads, merged_reads)
 
         #send the merged files to be trimmed annd matched to the design librarym get the resulting frequencies and the run stats
-        design_umi_dictionary,trimmed_reads,design_count_pre_umi =  get_umi_counts(sample_name,merged_result_file,discarded_trim_csv,discarded_trim_fasta,
+        design_umi_dictionary,trimmed_reads =  get_umi_counts(sample_name,merged_result_file,discarded_trim_csv,discarded_trim_fasta,
                                         trimmed_reads,design_umi_dictionary,discarded_design_csv,
-                                        discarded_design_fasta,design_count_pre_umi)
+                                        discarded_design_fasta,allowed_mismatches,mismatch_design_fasta
+                                        ,mismatch_design_csv)
     #take the design frequency dictionary and change it so that the key is the id and not the sequence, count UMIs
     design_umi_frequencies,design_match_counts = count_design_umis(design_umi_dictionary, umi_output_location,record_umi_sets)
 
     #go over the dictionary and aggregate the run stats
     found_designs = 0
     design_count_post_umi = 0
+    design_count_pre_umi = 0
     # for design,freq in sample_var_freq_dict.iteritems():
     for design,freq in design_umi_frequencies.iteritems():
         if int(freq) > 0:
             found_designs = found_designs +1
         design_count_post_umi = design_count_post_umi + freq
+    for design,match_count in design_match_counts.iteritems():
+        design_count_pre_umi = design_count_pre_umi + match_count
+
     #write the summary file for this sample
     summary_csv = csv.writer(open(summary_file_location, 'wb'))
     summary_csv.writerow(['',sample_name])
@@ -395,11 +392,11 @@ def sample_design_frequency(sample_name,location,ref_file,discarded_trim_file,di
 
 
 def align_and_trim_primers_nosw(seq, f_primer = DEFAULT_FORWARD_PRIMER, r_primer = DEFAULT_REVERSE_PRIMER,
-                            umi_length = DEFAULT_UMI_LENGTH, primer_percent_identity = DEFAULT_PRIMER_PERCENT_IDENTITY,
+                            umi_length = DEFAULT_UMI_LENGTH, primer_mismatch = DEFAULT_PRIMER_MISMATCH,
                            max_r_shift_length = DEFAULT_R_SHIFT_LENGTH, design_max_length = DEFAULT_DESIGN_MAX_LENGTH,
                            design_min_length = DEFAULT_DESIGN_MIN_LENGTH ):
     #does an alignment to primers and trim algorithm with no indels and no sequence shift, just mismatch,
-    # receives the sequence and can receive the primers, the length of the umi, the identity you want to the primer,
+    # receives the sequence and can receive the primers, the length of the umi, the mismatch you want to the primer,
     # the length of the reverse shift and the limits of the design sizes
     # returns a trimmed sequence, and the umi, and a value of the fail stage (0 if succeeded)
 
@@ -417,9 +414,9 @@ def align_and_trim_primers_nosw(seq, f_primer = DEFAULT_FORWARD_PRIMER, r_primer
     read_f_primer_area = seq[umi_length:len(f_primer) + umi_length]
 
     # compare the forward primer region on the read to the forward primer
-    f_primer_percent_identity = get_percent_identity(f_primer,read_f_primer_area )
+    f_primer_mismatch = get_mismatch(f_primer,read_f_primer_area )
     #if the primer area is above the level of mismatches than continue write the point the fragment starts and continue
-    if f_primer_percent_identity > primer_percent_identity:
+    if f_primer_mismatch < primer_mismatch:
         fragment_start = len(f_primer) + umi_length
         #go over all the possible shifts of the reverse primer
         for r_shift_length in xrange(0,max_r_shift_length+1):
@@ -429,10 +426,10 @@ def align_and_trim_primers_nosw(seq, f_primer = DEFAULT_FORWARD_PRIMER, r_primer
             else:
                 #the reverse primer area is where the primer should be on the sequence condidering the reverse shift
                 read_r_primer_area = seq[-len(r_primer)-r_shift_length:-r_shift_length]
-            #get the percent identity to the reverse primer
-            r_primer_percent_identity = get_percent_identity(r_primer,read_r_primer_area )
-            #if percent identity is above threshold
-            if r_primer_percent_identity  > primer_percent_identity:
+            #get the percent mismatch to the reverse primer
+            r_primer_mismatch = get_mismatch(r_primer,read_r_primer_area )
+            #if percent mismatch is above threshold
+            if r_primer_mismatch  < primer_mismatch:
                 #the framgent ends in the start of the reverse primer area
                 fragment_end = -len(r_primer)-r_shift_length
                 #substring the fragment from start to finish
@@ -443,32 +440,32 @@ def align_and_trim_primers_nosw(seq, f_primer = DEFAULT_FORWARD_PRIMER, r_primer
                 else:
                     # if the seq isnt within length limits
                     # print len(fragment)
-                    # print f_primer_percent_identity
-                    # print r_primer_percent_identity
+                    # print f_primer_mismatch
+                    # print r_primer_mismatch
                     # print 'fragment not correct length',umi, r_shift_overhang,str(fragment)
                     return ('fragment not correct length',umi, r_shift_overhang,str(fragment)),4
         # if the reverse primer isnt on the sequence
-        # print r_primer_percent_identity
+        # print r_primer_mismatch
         # print 'reverse primer alignment not full',umi, r_shift_overhang,str(seq)
         return ('reverse primer alignment not full',umi, r_shift_overhang,str(seq)),3
     else:
         # if the forward primer isnt on the sequence
-        # print f_primer_percent_identity
+        # print f_primer_mismatch
         # print 'forward primer alignment not full',umi, r_shift_overhang,str(seq)
         return ('forward primer alignment not full',umi, r_shift_overhang,str(seq)),2
 
 
 
-def get_percent_identity(primer, read_primer_area):
-    # a method that get's the percent identity between two sequences
+def get_mismatch(reference, query):
+    # a method that get's the  mismatch between two sequences
     # accepts 2 sequences of the same length
-    #returns percent identity
-    assert len(primer) == len(read_primer_area)
+    #returns  mismatch
+    assert len(reference) == len(query)
     dif = 0
-    for index,base in enumerate(primer):
-        if base != read_primer_area[index]:
+    for index,base in enumerate(reference):
+        if base != query[index]:
             dif = dif + 1
-    return 1-float(dif)/float(len(primer))
+    return dif
 
 
 def align_and_trim_primers(seq, f_primer = DEFAULT_FORWARD_PRIMER, r_primer = DEFAULT_REVERSE_PRIMER,
@@ -478,7 +475,7 @@ def align_and_trim_primers(seq, f_primer = DEFAULT_FORWARD_PRIMER, r_primer = DE
     # a method to align a sequence to primers, trim the primers and validate if all the parts are the right length
     # variables: seq: sequence to align, f_primer: forward primer, r_primer: reverse primer,
     # scoring_matrix: Smith Waterman scoring matrix, umi_length: primer design UMI length,
-    # r_shift_length: reverse primer design shift length, design_max_length: maximum length of designs,
+    # r_shift_length: reverse primer deFsign shift length, design_max_length: maximum length of designs,
     # design_min_length: minimum length of designs
     # returns UMI and sequence if the sequence passes all tests, returns fails string, umi, reverse shift overhang and
     # fragment if one of the tests isn't passed
@@ -523,7 +520,7 @@ def align_and_trim_primers(seq, f_primer = DEFAULT_FORWARD_PRIMER, r_primer = DE
 
 
 def get_umi_counts(sample, merged_seq_file_location,discarded_trim_csv,discarded_trim_fasta,trimmed_reads,design_umi_dictionary,
-                   discarded_design_csv,discarded_design_fasta,design_count_pre_umi):
+                   discarded_design_csv,discarded_design_fasta,allowed_mismatches,mismatch_design_fasta,mismatch_design_csv):
     #goes over a merged seq file, trims the sequences to get a fragment and a umi, and searched the design library for a match
     #receives the sample name, the merged file location, objects for all the discarded seq files, the reference file
     # dictionary for storing the matched sequence umis, and the count of the number of designs matched before umi filter
@@ -557,32 +554,98 @@ def get_umi_counts(sample, merged_seq_file_location,discarded_trim_csv,discarded
             trim_num = trim_num + 1
             #get the umi and the fragment strings
             umi,fragment = trimmed
-            #if the reference dictionary has a design with this sequence add to the umi set try for both regular and reverse complement
-            reverse = str(Seq(fragment).reverse_complement())
-            if design_umi_dictionary.has_key(str(fragment)):
-                design_umi_dictionary[str(fragment)]['umi_set'].add(umi)
-                design_umi_dictionary[str(fragment)]['match_count'] = design_umi_dictionary[str(fragment)]['match_count'] + 1
+            #if the reference dictionary has a design with this sequence add to the umi set try for both regular and
+            #reverse complement
 
-                #add to matched sequence counter
-                design_count_pre_umi = design_count_pre_umi + 1
-            #if not check reverse complement
-            elif design_umi_dictionary.has_key(reverse):
-                design_umi_dictionary[reverse]['umi_set'].add(umi)
-                design_umi_dictionary[reverse]['match_count']  = design_umi_dictionary[str(reverse)]['match_count'] + 1
-                design_count_pre_umi = design_count_pre_umi + 1
-        #if the read was trimmed but no match write to the deiscarded match files, the csv value and the fastq value
-            else:
-                discarded_design_csv.writerow([sample,record.name,fragment,umi])
-                SeqIO.write(record,discarded_design_fasta,'fastq')
+            success =  find_match(design_umi_dictionary,sample,fragment,umi,record,discarded_design_fasta,
+                                  discarded_design_csv,mismatch_design_fasta,mismatch_design_csv,allowed_mismatches)
         #if the read was not trimmed trimmed write to the deiscarded trim files, the csv value and the fastq valuu
         else:
             # print '~~~~~~~~~~~~~~~~~~~~~~ failure ~~~~~~~~~~~~~~~~~~~~~~'
-
             SeqIO.write(record,discarded_trim_fasta,'fastq')
             discarded_trim_csv.writerow([sample] + [fail])
     trimmed_reads = trimmed_reads + trim_num
 
-    return design_umi_dictionary,trimmed_reads,design_count_pre_umi
+    return design_umi_dictionary,trimmed_reads
+
+
+def find_match(design_umi_dictionary,sample,fragment,umi,record,discarded_design_fasta,discarded_design_csv,
+               mismatch_design_fasta,mismatch_design_csv,allowed_mismatches):
+        if fragment in design_umi_dictionary:
+            design_umi_dictionary[fragment]['umi_set'].add(umi)
+            design_umi_dictionary[fragment]['match_count'] = design_umi_dictionary[fragment]['match_count'] + 1
+            return True
+        reverse = str(Seq(fragment).reverse_complement())
+        if reverse in design_umi_dictionary:
+            design_umi_dictionary[reverse]['umi_set'].add(umi)
+            design_umi_dictionary[reverse]['match_count'] = design_umi_dictionary[reverse]['match_count'] + 1
+            return True
+        best_mismatch,matched_refs,best_ref_umi_dict = find_best_mismatch(design_umi_dictionary, fragment)
+        if best_mismatch <= allowed_mismatches:
+            if len(matched_refs) > 1:
+                matched_designs_list = []
+                for ref in matched_refs:
+                    matched_designs_list.append(design_umi_dictionary[ref]['id'])
+                matched_designs_string = '|'.join(matched_designs_list)
+                discarded_design_csv.writerow([record.name,sample,fragment,umi,'more than one best match', best_mismatch
+                    ,matched_designs_string,umi])
+                SeqIO.write(record,discarded_design_fasta,'fastq')
+                return False
+            else:
+                best_ref_umi_dict['umi_set'].add(umi)
+                best_ref_umi_dict['match_count'] = best_ref_umi_dict['match_count'] + 1
+                mismatch_design_csv.writerow([record.name,sample,fragment,umi,best_mismatch,best_ref_umi_dict['id'],umi])
+                SeqIO.write(record,mismatch_design_fasta,'fastq')
+                return True
+        else:
+            #if not check reverse complement
+            reverse_best_mismatch,matched_refs,best_ref_umi_dict = find_best_mismatch(design_umi_dictionary, reverse)
+            if reverse_best_mismatch <= best_mismatch:
+                best_mismatch = reverse_best_mismatch
+                if best_mismatch <= allowed_mismatches:
+                    if len(matched_refs) > 1:
+                        matched_designs_list = []
+                        for ref in matched_refs:
+                            matched_designs_list.append(design_umi_dictionary[ref]['id'])
+                        matched_designs_string = '|'.join(matched_designs_list)
+                        discarded_design_csv.writerow([record.name,sample,fragment,umi,'more than one best match',
+                                                       best_mismatch,matched_designs_string,umi])
+                        SeqIO.write(record,discarded_design_fasta,'fastq')
+                        return False
+                    else:
+                        best_ref_umi_dict['umi_set'].add(umi)
+                        best_ref_umi_dict['match_count'] = best_ref_umi_dict['match_count'] + 1
+                        mismatch_design_csv.writerow([record.name,sample,fragment,umi],best_mismatch
+                                                     ,best_ref_umi_dict['id'],umi)
+                        SeqIO.write(record,mismatch_design_fasta,'fastq')
+                        return True
+
+
+        discarded_design_csv.writerow([record.name,sample,fragment,umi,'no match below maximum mismatch', best_mismatch,
+                                       best_ref_umi_dict['id'],umi])
+        SeqIO.write(record,discarded_design_fasta,'fastq')
+        return False
+
+
+
+def find_best_mismatch(design_umi_dictionary,fragment):
+    best_mismatch = float('inf')
+    matched_refs = []
+    for design,umi_dict in design_umi_dictionary.iteritems():
+        if len(design) != len(fragment):
+            continue
+        current_mismatch = get_mismatch(design,fragment)
+        if current_mismatch == 0:
+            return current_mismatch,design,umi_dict
+        if current_mismatch > best_mismatch:
+            continue
+        elif current_mismatch == best_mismatch:
+            matched_refs.append(design)
+        elif current_mismatch < best_mismatch:
+            best_mismatch = current_mismatch
+            matched_refs = [design]
+            best_ref_umi_dict = umi_dict
+    return best_mismatch,matched_refs,best_ref_umi_dict
 
 def main(argv):
     # # test get_umi_counts
@@ -634,9 +697,12 @@ def main(argv):
     umi_output_location = argv[8]
     record_umi_sets = argv[9]
     match_count_file = argv[10]
+    allowed_mismatches = int(argv[11])
+    mismatch_design_file = argv[12]
 
     design_umi_frequency,design_match_count = sample_design_frequency(sample_name,sample_location,ref_file,discarded_trim_file,discarded_design_file,
-                                             summary_file,umi_output_location,record_umi_sets)
+                                             summary_file,umi_output_location,record_umi_sets,allowed_mismatches,
+                                             mismatch_design_file)
     result_csv = csv.writer(open(res_file,'wb'))
     result_csv.writerow(['',sample_name])
     for design,umi_frequency in design_umi_frequency.iteritems():

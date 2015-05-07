@@ -7,12 +7,12 @@ import os
 import sys
 
 #the location of the sample directory and the home directory for runs on the sample test set
-DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/"
-DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'bins/'
+# DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/"
+# DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'bins/'
 
 #the location of the sample directory and the home directory for runs on the fitseq raw data
-# DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_raw_data/150330_D00257_0179_AC6FFDANXX/"
-# DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'Unaligned_fastq/'
+DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_raw_data/150330_D00257_0179_AC6FFDANXX/"
+DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'Unaligned_fastq/'
 
 #the location of the reference table
 DEFAULT_REFERENCE_FILE = "/home/labs/pilpel/avivro/workspace/data/reference_variant_full_sequences.tab"
@@ -20,11 +20,13 @@ DEFAULT_REFERENCE_FILE = "/home/labs/pilpel/avivro/workspace/data/reference_vari
 
 def go_over_samples(record_umi_sets,mismatches,sample_dir  = DEFAULT_SAMPLE_DIR, home_dir = DEFAULT_HOME_DIR, ref_file = DEFAULT_REFERENCE_FILE):
     #runs over the files in the bin directory and sends each to be processed as a separete job on wexac
-    #receives raw data directory, the home directory of the entire pipeline and the location of the reference file
+    #receives boolean value for recording umi sets, the maximum number of mismatches allowed, the raw data directory,
+    #the home directory of the entire pipeline and the location of the reference file
     #returns nothing but creates two files in the final result directory containing lists of the result and summary file locations
 
     #date time string for tracking files
     date_time =  (time.strftime("%d-%m-%y-%H%M"))
+    #string to add number of mismatches to file names
     mismatch_string = '_mismatches_' + mismatches
 
     #create the directory to store all the results fot this run
@@ -85,6 +87,7 @@ def go_over_samples(record_umi_sets,mismatches,sample_dir  = DEFAULT_SAMPLE_DIR,
             #create discarded read file names for the reads discarded at trim stage and at match to design stage
             discarded_trim_file = res_dir + sample_name + '_discarded_trimmed_' + date_time +  mismatch_string
             discarded_match_file = res_dir + sample_name + '_discarded_match_' + date_time +  mismatch_string
+            #create file to record all reads that have mismatches but passed maximum mismatch filter
             mismatch_file = res_dir + sample_name + '_mismatch_' + date_time +  mismatch_string
 
             #create the summary file where we write the run stats, then add the file to the list of locations
@@ -133,6 +136,7 @@ def go_over_samples(record_umi_sets,mismatches,sample_dir  = DEFAULT_SAMPLE_DIR,
 
 if __name__ == "__main__":
     #recieves a boolean value if you want to record the strings of the umis of every design to fasta files
+    #and number of mismatches allowed to still call a read for a design
     record_umi_sets = sys.argv[1]
     mismatches = str(sys.argv[2])
     #runs the go over samples method

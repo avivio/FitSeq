@@ -20,9 +20,11 @@ record_list=[""]
     which will help you to fish the matched sequences using their index.
 """
 
+
+SD=SubstringDict()
+
 for record in SeqIO.parse(open('/home/labs/pilpel/avivro/workspace/data/reference_variant_full_sequences.fa','rU'),'fasta'):
-    record_list.append(record)
-    SD._addToTree(unicode(record.seq))
+        SD._dict[SD._addToTree(unicode(record.seq))]=record
 
 S1=SD._trees[0]
 r1=S1.root()
@@ -32,6 +34,8 @@ r2=S2.root()
 S=SD._trees[0]
 # """Here, you should check the SD.trees variable. If there are more than 1 element there, call me, otherwise proceed"""
 r=S.root()
+
+
 
 def getAllIndices(node):
     """
@@ -106,6 +110,14 @@ def match_error_number_with_tree_num(seq,node_number,max_error=2,nodes=(r1,r2)):
     node = nodes[node_number-1]
     return match_error_number(seq,max_error,node)
 
+def get_matched_records(seq,max_error=2):
+    matched_records=[]
+    for tree in SD._trees:
+        r=tree.root()
+        m=match_error_number(seq,max_error,node=r)
+        matched_records.extend(zip([SD._dict[i] for i in set(sum([getAllIndices(i[2]) for i in m] ,[]))], [i[1] for i in m]))
+    return matched_records
+
 def match_error_number(seq,max_error=2,node=r,error_number=0,matched_seq='',edge_string=''):
     """ seq_quality : seq zipped with quality
 
@@ -122,12 +134,12 @@ def match_error_number(seq,max_error=2,node=r,error_number=0,matched_seq='',edge
     descendants=[]
 
     if error_number < max_error or inp_base=='N':
-        possible_mismatches=set('ATCG').symmetric_difference(inp_base)
+        possible_mismatches=set('ATCG').difference(inp_base)
         if not edge_string:
             for i in possible_mismatches:
                 new_node=node.find_child(i)
                 if new_node is not None:
-                    descendants.extend(match_error_number(seq[1:],max_error,new_node,error_number+1,matched_seq+i,new_node.edgestr()))
+                    descendants.extend(match_error_number(seq[1:],max_error,new_node,error_number+1,matched_seq+i,new_node.edgestr()[1:]))
         else:
             for i in possible_mismatches:
                 if i==edge_string[0]:

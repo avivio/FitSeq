@@ -12,6 +12,9 @@ import swalign
 from os import path
 import shelve
 import time
+import st_align as st_align
+from operator import itemgetter
+
 
 #primers act as the adapters in the seqprep tool, need to see how this acts with umi's
 # DEFAULT_FORWARD_PRIMER='NNNNNNNNNCAGCTCTTCGCCTTTACGCATATG' with UMI
@@ -563,7 +566,7 @@ def get_umi_counts(sample, merged_seq_file_location,discarded_trim_csv,discarded
         else:
             # print '~~~~~~~~~~~~~~~~~~~~~~ failure ~~~~~~~~~~~~~~~~~~~~~~'
             SeqIO.write(record,discarded_trim_fasta,'fastq')
-            discarded_trim_csv.writerow([sample] + [fail])
+            discarded_trim_csv.writerow([sample] + list(fail))
     trimmed_reads = trimmed_reads + trim_num
 
     return design_umi_dictionary,trimmed_reads
@@ -571,66 +574,106 @@ def get_umi_counts(sample, merged_seq_file_location,discarded_trim_csv,discarded
 
 def find_match(design_umi_dictionary,sample,fragment,umi,record,discarded_design_fasta,discarded_design_csv,
                mismatch_design_fasta,mismatch_design_csv,allowed_mismatches):
+        #test to see if the read exists perfectly in the dictionary, if so add the umi to the umi list and count a match
         if fragment in design_umi_dictionary:
             design_umi_dictionary[fragment]['umi_set'].add(umi)
             design_umi_dictionary[fragment]['match_count'] = design_umi_dictionary[fragment]['match_count'] + 1
             return True
+        #if the straigth sequence doesn't exist try to see if the reverse sequence exists perfectly
         reverse = str(Seq(fragment).reverse_complement())
         if reverse in design_umi_dictionary:
             design_umi_dictionary[reverse]['umi_set'].add(umi)
             design_umi_dictionary[reverse]['match_count'] = design_umi_dictionary[reverse]['match_count'] + 1
             return True
-        best_mismatch,matched_refs,best_ref_umi_dict = find_best_mismatch(design_umi_dictionary, fragment)
-        if best_mismatch <= allowed_mismatches:
+
+        #if the allowed mismatch number is 0 than we're done, only perfect matches will be accepted
+        if allowed_mismatches == 0:
+            return False
+
+        #send sequence to find best mismatche
+        matched_refs,best_mismatch= find_best_mismatch(fragment,allowed_mismatches)
+        #if best mismatch returned than start tests
+        if best_mismatch >= 0:
+            #is there only one best mismatch?
             if len(matched_refs) > 1:
+                #if there is more than one best mimatch, create a | divided string of design names
                 matched_designs_list = []
                 for ref in matched_refs:
                     matched_designs_list.append(design_umi_dictionary[ref]['id'])
                 matched_designs_string = '|'.join(matched_designs_list)
+                #write that this mismatch was ambigous and record mismatch data including number and designs matched
                 discarded_design_csv.writerow([record.name,sample,fragment,umi,'more than one best match', best_mismatch
-                    ,matched_designs_string,umi])
+                    ,matched_designs_string])
                 SeqIO.write(record,discarded_design_fasta,'fastq')
+                #no  match return false
                 return False
             else:
-                best_ref_umi_dict['umi_set'].add(umi)
-                best_ref_umi_dict['match_count'] = best_ref_umi_dict['match_count'] + 1
-                mismatch_design_csv.writerow([record.name,sample,fragment,umi,best_mismatch,best_ref_umi_dict['id'],umi])
+                #if there is only one best match
+                #see if reference exists in list or if the reverse does
+                ref = matched_refs[0]
+                if ref not in design_umi_dictionary:
+                    ref = str(Seq(matched_refs[0]).reverse_complement())
+                #check if the fragment isn't shorter than the reference due to suffix tree weirdness
+                if len(fragment)!= len(ref):
+                    # if it is, write as no match but record the error in file
+                    discarded_design_csv.writerow([record.name,sample,fragment,umi,
+                                                   'fragment not the same length as matching design', best_mismatch,
+                                                   design_umi_dictionary[ref]['id']])
+                    SeqIO.write(record,discarded_design_fasta,'fastq')
+                    return False
+                # if all of the above is right, than add the umi to the design and write a match
+                design_umi_dictionary[ref]['umi_set'].add(umi)
+                design_umi_dictionary[ref]['match_count'] = design_umi_dictionary[ref]['match_count'] + 1
+                #also record this mismatch tothe mismatch files
+                mismatch_design_csv.writerow([record.name,sample,fragment,umi,best_mismatch,design_umi_dictionary[ref]['id']])
                 SeqIO.write(record,mismatch_design_fasta,'fastq')
                 return True
         else:
-            #if not check reverse complement
-            reverse_best_mismatch,matched_refs,best_ref_umi_dict = find_best_mismatch(design_umi_dictionary, reverse)
-            if reverse_best_mismatch <= best_mismatch:
-                best_mismatch = reverse_best_mismatch
-                if best_mismatch <= allowed_mismatches:
-                    if len(matched_refs) > 1:
-                        matched_designs_list = []
-                        for ref in matched_refs:
-                            matched_designs_list.append(design_umi_dictionary[ref]['id'])
-                        matched_designs_string = '|'.join(matched_designs_list)
-                        discarded_design_csv.writerow([record.name,sample,fragment,umi,'more than one best match',
-                                                       best_mismatch,matched_designs_string,umi])
+            #if the entire sereis above didn't work, check reverse complement and do all the same thing just with the reverse
+            matched_refs,best_mismatch= find_best_mismatch(reverse,allowed_mismatches)
+            if best_mismatch >= 0:
+                if len(matched_refs) > 1:
+                    matched_designs_list = []
+                    for ref in matched_refs:
+                        if ref not in design_umi_dictionary:
+                            ref = str(Seq(matched_refs[0]).reverse_complement())
+                        matched_designs_list.append(design_umi_dictionary[ref]['id'])
+                    matched_designs_string = '|'.join(matched_designs_list)
+                    discarded_design_csv.writerow([record.name,sample,reverse,umi,'more than one best match', best_mismatch
+                        ,matched_designs_string])
+                    SeqIO.write(record,discarded_design_fasta,'fastq')
+                    return False
+                else:
+                    ref = matched_refs[0]
+                    if ref not in design_umi_dictionary:
+                        ref = str(Seq(matched_refs[0]).reverse_complement())
+                    if len(reverse)!= len(ref):
+                        print 'lengths are different!!!'
+                        discarded_design_csv.writerow([record.name,sample,reverse,umi,
+                                                       'fragment not the same length as matching design', best_mismatch,
+                                                       design_umi_dictionary[ref]['id']])
                         SeqIO.write(record,discarded_design_fasta,'fastq')
                         return False
-                    else:
-                        best_ref_umi_dict['umi_set'].add(umi)
-                        best_ref_umi_dict['match_count'] = best_ref_umi_dict['match_count'] + 1
-                        mismatch_design_csv.writerow([record.name,sample,fragment,umi],best_mismatch
-                                                     ,best_ref_umi_dict['id'],umi)
-                        SeqIO.write(record,mismatch_design_fasta,'fastq')
-                        return True
 
-
-        discarded_design_csv.writerow([record.name,sample,fragment,umi,'no match below maximum mismatch', best_mismatch,
-                                       best_ref_umi_dict['id'],umi])
+                    design_umi_dictionary[ref]['umi_set'].add(umi)
+                    design_umi_dictionary[ref]['match_count'] = design_umi_dictionary[ref]['match_count'] + 1
+                    mismatch_design_csv.writerow([record.name,sample,reverse,umi,best_mismatch,design_umi_dictionary[ref]['id']])
+                    SeqIO.write(record,mismatch_design_fasta,'fastq')
+                    return True
+        #if both the reverse and the straight read didn't find a match, than theres is no match and we'll record that
+        discarded_design_csv.writerow([record.name,sample,fragment,umi,
+                                       'no match below ' + str(allowed_mismatches)+ ' mismatches', 'NA', 'NA'])
         SeqIO.write(record,discarded_design_fasta,'fastq')
         return False
 
 
 
-def find_best_mismatch(design_umi_dictionary,fragment):
+def best_mismatch_old_logic(design_umi_dictionary,fragment,allowed_mismatch):
+    #old mismatch logic which compares every reference sequence to the fragemnt
     best_mismatch = float('inf')
     matched_refs = []
+    best_ref_umi_dict = None
+    fragment = str(Seq(fragment).reverse_complement())
     for design,umi_dict in design_umi_dictionary.iteritems():
         if len(design) != len(fragment):
             continue
@@ -640,12 +683,39 @@ def find_best_mismatch(design_umi_dictionary,fragment):
         if current_mismatch > best_mismatch:
             continue
         elif current_mismatch == best_mismatch:
-            matched_refs.append(design)
+            matched_refs.append(str(Seq(design).reverse_complement()))
         elif current_mismatch < best_mismatch:
             best_mismatch = current_mismatch
-            matched_refs = [design]
+            matched_refs = [str(Seq(design).reverse_complement())]
             best_ref_umi_dict = umi_dict
+    if best_mismatch > allowed_mismatch:
+        return float('inf'),[],None
+
     return best_mismatch,matched_refs,best_ref_umi_dict
+
+
+
+def find_best_mismatch(fragment,allowed_mismatches):
+    #mismatch finder using suffix tree
+    #receives fragment and maximim allowed mismatches
+    #returns a list of matched reference sequences and them mismatch number
+
+    #set the initail best mismatch to the highest number possible
+    best_mismatch = float('inf')
+    #send fragment and max mismatch number to suffix tree 
+    m= st_align.get_matched_records(fragment,allowed_mismatches)
+    if not m:
+        return None,None
+    sorted_all_matched_refs = sorted(m, key=itemgetter(1))
+    matched_refs = []
+    for match in sorted_all_matched_refs:
+        if match[1] <= best_mismatch:
+            best_mismatch = match[1]
+            ref = str(match[0].seq)
+            matched_refs.append(ref)
+
+    return matched_refs,best_mismatch
+
 
 def main(argv):
     # # test get_umi_counts

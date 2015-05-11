@@ -8,6 +8,7 @@ Created on Wed Dec  3 16:20:15 2014
 from SuffixTree import SubstringDict
 from Bio import SeqIO
 from os import chdir
+import collections
 
 chdir('/home/labs/pilpel/avivro/workspace/data/') # don't forget to change the path variable
 SD=SubstringDict()
@@ -115,7 +116,7 @@ def get_matched_records(seq,max_error=2):
     for tree in SD._trees:
         r=tree.root()
         m=match_error_number(seq,max_error,node=r)
-        matched_records.extend(zip([SD._dict[i] for i in set(sum([getAllIndices(i[2]) for i in m] ,[]))], [i[1] for i in m]))
+        matched_records.extend(zip([SD._dict[i] for i in collections.OrderedDict.fromkeys(sum([getAllIndices(i[2]) for i in m] ,[]))], [i[1] for i in m]))
     return matched_records
 
 def match_error_number(seq,max_error=2,node=r,error_number=0,matched_seq='',edge_string=''):
@@ -127,8 +128,14 @@ def match_error_number(seq,max_error=2,node=r,error_number=0,matched_seq='',edge
     and the "node". The node can be used to then retrieve the db sequence the read was matched to.
     """
 
+    # if not seq:
+    #     return [(matched_seq,error_number,node)]
+
     if not seq:
-        return [(matched_seq,error_number,node)]
+        if not node.edgestr():
+            return [(matched_seq,error_number,node)]
+        else:
+            return [(matched_seq+node.edgestr()[0],error_number,node)]
 
     inp_base = seq[0]
     descendants=[]

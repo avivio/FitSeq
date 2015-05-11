@@ -71,7 +71,7 @@ DEFAULT_SCORING_MATRIX = swalign.NucleotideScoringMatrix(DEFAULT_MATCH_SCORE, DE
 DEFAULT_SW_ALIGN = swalign.LocalAlignment(DEFAULT_SCORING_MATRIX)
 
 
-def load_reference_dict(reference_location = DEFAULT_REFERENCE_FILE):
+def load_reference_dict(allowed_mismatches, reference_location = DEFAULT_REFERENCE_FILE):
     #method for loading the refence file into a design counting dictionary
     #recieves the reference file path
     #returns a dictionary with the reference design sequences as keys and a list of the id and an empty set as values
@@ -82,7 +82,9 @@ def load_reference_dict(reference_location = DEFAULT_REFERENCE_FILE):
     for record in SeqIO.parse(handle, "tab") :
         #sequences are fed into the reference dict where the sequence is the key and the value is a list with the id
         # and the umi set
-        reference_dict[str(record.seq.upper().reverse_complement())] = {'id':record.id,'umi_set' :set(), 'match_count' :0 }
+        reference_dict[str(record.seq.upper().reverse_complement())] = {'id':record.id,
+                                                                        'umi_sets' :[set() for x in xrange(allowed_mismatches + 1)],
+                                                                        'match_counts' :[0 for x in xrange(allowed_mismatches + 1)] }
     handle.close()
     return reference_dict
 
@@ -246,47 +248,61 @@ def count_designs(sample,fragment_umi_record_dict,reference_dictionary, discarde
     return design_count
 
 
-def count_design_umis(design_umi_dictionary,umi_output_location,record_umi_sets = False):
+def count_design_umis(design_umi_dictionary,umi_output_location,allowed_mismatches,record_umi_sets = False):
     #method that counts the umis for every design
     # recieves a dictionary of design sequences and their id and umi sets, the umi output location and if the umi output should be recorded
     # returns a dictioinary with the design id and the umi count
 
     #create design umi count dictionary
-    design_umi_count = {}
-    design_match_count_dict= {}
+    design_umi_counts = [{} for x in xrange(allowed_mismatches+1)]
+    design_umi_all = {}
+    design_match_counts_dict= [{} for x in xrange(allowed_mismatches+1)]
+    design_match_count_all = {}
     #for each design sequence and id umi set pair in dictionary
     for design,value in design_umi_dictionary.iteritems():
         #find the id and the umi set
         design_id = value['id']
-        design_umi_set = value['umi_set']
-        design_match_count = value['match_count']
+        design_umi_sets = value['umi_sets']
+        design_match_counts = value['match_counts']
         #if the user wants to record the umi set to a fasta send to the method
         if record_umi_sets:
-            write_umi_set(design_id,design_umi_set,umi_output_location)
+            write_umi_set(design_id,design_umi_sets,umi_output_location)
         # if len(design_umi_set) > 0:
         #     print design_id
         #     print design_umi_set
 
+        #create set of union of all mismatch sets
+        all_umis = set()
         #set the design frequencey to be the length of the set
-        design_umi_count[design_id] = len(design_umi_set)
-        design_match_count_dict[design_id] = design_match_count
-    return design_umi_count,design_match_count_dict
+        for index,design_umi_set in enumerate(design_umi_sets):
+            design_umi_counts[index][design_id] = len(design_umi_set)
+            all_umis = all_umis.union(design_umi_set)
+        design_umi_all[design_id] = len(all_umis)
+        for index,design_match_count in enumerate(design_match_counts):
+            design_match_counts_dict[index][design_id] = design_match_count
+            if design_id in design_match_count_all:
+                design_match_count_all[design_id] = design_match_count_all[design_id] + design_match_count
+            else:
+                 design_match_count_all[design_id] = design_match_count
+    return design_umi_counts,design_match_counts_dict, design_umi_all,design_match_count_all
 
-def write_umi_set(design_id,design_umi_set,umi_output_location):
+def write_umi_set(design_id,design_umi_sets,umi_output_location):
     #method to record the umis of a certain design to a fasta file for further analysis
     #receives the design id, the umi set, and the output location
-
     #if the output directory doesn't exist create it
     if not os.path.exists(umi_output_location):
         os.makedirs(umi_output_location)
-    #create the file for the output and ipen it for writing
-    umi_file_name = umi_output_location + design_id + '_umi_output.fa'
-    umi_file = open(umi_file_name,'wb')
-    #write the fasta as a title and sequnce
-    for index, umi in enumerate(design_umi_set):
-        title = '>' + 'umi_' + str(index) + '_' + umi + "\n"
-        umi_file.write(title)
-        umi_file.write(umi  + "\n")
+    #go over the list of umis sets and use the index as the mismatch number
+    for mismatch,design_umi_set in enumerate(design_umi_sets):
+        #create the file for the output and open it for writing using the design id and the mismatch number as the name
+        umi_file_name = umi_output_location + design_id + str(mismatch) +  '_mismatch_umi_output.fa'
+        umi_file = open(umi_file_name,'wb')
+        #go over the umis and write them to the fasta file
+        for index, umi in enumerate(design_umi_set):
+            #write the fasta as a title and sequnce
+            title = '>' + 'umi_' + str(index) + '_' + umi + "\n"
+            umi_file.write(title)
+            umi_file.write(umi  + "\n")
 
 
 
@@ -309,7 +325,7 @@ def sample_design_frequency(sample_name,location,ref_file,discarded_trim_file,di
           os.makedirs(output_dir)
 
     # load the reference dictionary into the dictionary we'll use to record the results
-    design_umi_dictionary = load_reference_dict(ref_file)
+    design_umi_dictionary = load_reference_dict(allowed_mismatches,ref_file)
 
     #create the result dir for this stage
     result_dir = path.dirname(discarded_trim_file)
@@ -368,19 +384,37 @@ def sample_design_frequency(sample_name,location,ref_file,discarded_trim_file,di
                                         discarded_design_fasta,allowed_mismatches,mismatch_design_fasta
                                         ,mismatch_design_csv)
     #take the design frequency dictionary and change it so that the key is the id and not the sequence, count UMIs
-    design_umi_frequencies,design_match_counts = count_design_umis(design_umi_dictionary, umi_output_location,record_umi_sets)
+    design_umi_frequencies_dicts,design_match_counts_dicts,design_umi_frequencies_all_mismatches,\
+    design_match_counts_all_mismatches = count_design_umis(design_umi_dictionary, umi_output_location,allowed_mismatches,record_umi_sets)
 
-    #go over the dictionary and aggregate the run stats
-    found_designs = 0
-    design_count_post_umi = 0
-    design_count_pre_umi = 0
-    # for design,freq in sample_var_freq_dict.iteritems():
-    for design,freq in design_umi_frequencies.iteritems():
-        if int(freq) > 0:
-            found_designs = found_designs +1
-        design_count_post_umi = design_count_post_umi + freq
-    for design,match_count in design_match_counts.iteritems():
-        design_count_pre_umi = design_count_pre_umi + match_count
+    #go over the dictionary and aggregate the run stats for each mismatch value
+    found_designs_list = [0 for x in xrange(allowed_mismatches + 1)]
+    design_count_post_umi_list = [0 for x in xrange(allowed_mismatches + 1)]
+    design_count_pre_umi_list = [0 for x in xrange(allowed_mismatches + 1)]
+
+    for mismatch,design_umi_frequencies in enumerate(design_umi_frequencies_dicts):
+        for design,freq in design_umi_frequencies.iteritems():
+            if int(freq) > 0:
+                found_designs_list[mismatch]= found_designs_list[mismatch]+1
+            design_count_post_umi_list[mismatch] = design_count_post_umi_list[mismatch] + freq
+
+    for mismatch,design_match_counts in enumerate(design_match_counts_dicts):
+        for design,match_count in design_match_counts.iteritems():
+            design_count_pre_umi_list[mismatch] = design_count_pre_umi_list[mismatch] + match_count
+    found_designs_all = 0
+    design_count_post_umi_all = 0
+    design_count_pre_umi_all = 0
+
+    for design,freq in design_umi_frequencies_all_mismatches.iteritems():
+        if freq > 0:
+            found_designs_all = found_designs_all + 1
+        design_count_post_umi_all = design_count_post_umi_all + freq
+
+    for design,freq in design_match_counts_all_mismatches.iteritems():
+        design_count_pre_umi_all = design_count_pre_umi_all + freq
+
+
+
 
     #write the summary file for this sample
     summary_csv = csv.writer(open(summary_file_location, 'wb'))
@@ -388,10 +422,17 @@ def sample_design_frequency(sample_name,location,ref_file,discarded_trim_file,di
     summary_csv.writerow(['all_reads',all_reads])
     summary_csv.writerow(['merged_reads',merged_reads])
     summary_csv.writerow(['trimmed_reads',trimmed_reads])
-    summary_csv.writerow(['found_designs',found_designs])
-    summary_csv.writerow(['design_count_pre_umi',design_count_pre_umi])
-    summary_csv.writerow(['design_count_post_umi',design_count_post_umi])
-    return design_umi_frequencies,design_match_counts
+
+    for mismatch in xrange(allowed_mismatches+1):
+        mismatches = str(mismatch)+ '_mismatches'
+        summary_csv.writerow(['found_designs_' + mismatches,found_designs_list[mismatch]])
+        summary_csv.writerow(['design_count_pre_umi_' + mismatches,design_count_pre_umi_list[mismatch]])
+        summary_csv.writerow(['design_count_post_umi_' + mismatches,design_count_post_umi_list[mismatch]])
+
+    summary_csv.writerow(['found_designs_all',found_designs_all])
+    summary_csv.writerow(['design_count_pre_umi_all',design_count_pre_umi_all])
+    summary_csv.writerow(['design_count_post_umi_all',design_count_post_umi_all])
+    return design_umi_frequencies_dicts,design_match_counts_dicts,design_umi_frequencies_all_mismatches,design_match_counts_all_mismatches
 
 
 def align_and_trim_primers_nosw(seq, f_primer = DEFAULT_FORWARD_PRIMER, r_primer = DEFAULT_REVERSE_PRIMER,
@@ -576,14 +617,14 @@ def find_match(design_umi_dictionary,sample,fragment,umi,record,discarded_design
                mismatch_design_fasta,mismatch_design_csv,allowed_mismatches):
         #test to see if the read exists perfectly in the dictionary, if so add the umi to the umi list and count a match
         if fragment in design_umi_dictionary:
-            design_umi_dictionary[fragment]['umi_set'].add(umi)
-            design_umi_dictionary[fragment]['match_count'] = design_umi_dictionary[fragment]['match_count'] + 1
+            design_umi_dictionary[fragment]['umi_sets'][0].add(umi)
+            design_umi_dictionary[fragment]['match_counts'][0] = design_umi_dictionary[fragment]['match_counts'][0] + 1
             return True
         #if the straigth sequence doesn't exist try to see if the reverse sequence exists perfectly
         reverse = str(Seq(fragment).reverse_complement())
         if reverse in design_umi_dictionary:
-            design_umi_dictionary[reverse]['umi_set'].add(umi)
-            design_umi_dictionary[reverse]['match_count'] = design_umi_dictionary[reverse]['match_count'] + 1
+            design_umi_dictionary[reverse]['umi_sets'][0].add(umi)
+            design_umi_dictionary[reverse]['match_counts'][0] = design_umi_dictionary[reverse]['match_counts'][0] + 1
             return True
 
         #if the allowed mismatch number is 0 than we're done, only perfect matches will be accepted
@@ -591,11 +632,13 @@ def find_match(design_umi_dictionary,sample,fragment,umi,record,discarded_design
             return False
 
         #send sequence to find best mismatche
-        matched_refs,best_mismatch= find_best_mismatch(fragment,allowed_mismatches)
+        # matched_refs,best_mismatch= find_best_mismatch(fragment,allowed_mismatches,design_umi_dictionary)
+        best_mismatch,matched_refs= best_mismatch_old_logic(design_umi_dictionary,fragment,allowed_mismatches)
         #if best mismatch returned than start tests
         if best_mismatch >= 0:
             #is there only one best mismatch?
             if len(matched_refs) > 1:
+                print 'more than one result'
                 #if there is more than one best mimatch, create a | divided string of design names
                 matched_designs_list = []
                 for ref in matched_refs:
@@ -615,6 +658,7 @@ def find_match(design_umi_dictionary,sample,fragment,umi,record,discarded_design
                     ref = str(Seq(matched_refs[0]).reverse_complement())
                 #check if the fragment isn't shorter than the reference due to suffix tree weirdness
                 if len(fragment)!= len(ref):
+                    print 'fragment not the same length as matching design'
                     # if it is, write as no match but record the error in file
                     discarded_design_csv.writerow([record.name,sample,fragment,umi,
                                                    'fragment not the same length as matching design', best_mismatch,
@@ -622,17 +666,28 @@ def find_match(design_umi_dictionary,sample,fragment,umi,record,discarded_design
                     SeqIO.write(record,discarded_design_fasta,'fastq')
                     return False
                 # if all of the above is right, than add the umi to the design and write a match
-                design_umi_dictionary[ref]['umi_set'].add(umi)
-                design_umi_dictionary[ref]['match_count'] = design_umi_dictionary[ref]['match_count'] + 1
-                #also record this mismatch tothe mismatch files
-                mismatch_design_csv.writerow([record.name,sample,fragment,umi,best_mismatch,design_umi_dictionary[ref]['id']])
-                SeqIO.write(record,mismatch_design_fasta,'fastq')
-                return True
+                try:
+                    design_umi_dictionary[ref]['umi_sets'][best_mismatch].add(umi)
+                    design_umi_dictionary[ref]['match_counts'][best_mismatch] = design_umi_dictionary[ref]['match_counts'][best_mismatch] + 1
+                    #also record this mismatch tothe mismatch files
+                    mismatch_design_csv.writerow([record.name,sample,fragment,umi,best_mismatch,design_umi_dictionary[ref]['id']])
+                    SeqIO.write(record,mismatch_design_fasta,'fastq')
+                    return True
+                except:
+                    print 'fragment'
+                    print fragment
+                    print 'ref'
+                    print ref
+                    print 'best_mismatch'
+                    print best_mismatch
+                    return False
         else:
             #if the entire sereis above didn't work, check reverse complement and do all the same thing just with the reverse
-            matched_refs,best_mismatch= find_best_mismatch(reverse,allowed_mismatches)
+            # matched_refs,best_mismatch= find_best_mismatch(reverse,allowed_mismatches,design_umi_dictionary)
+            best_mismatch,matched_refs= best_mismatch_old_logic(design_umi_dictionary,reverse,allowed_mismatches)
             if best_mismatch >= 0:
                 if len(matched_refs) > 1:
+                    print 'more than one result'
                     matched_designs_list = []
                     for ref in matched_refs:
                         if ref not in design_umi_dictionary:
@@ -648,18 +703,27 @@ def find_match(design_umi_dictionary,sample,fragment,umi,record,discarded_design
                     if ref not in design_umi_dictionary:
                         ref = str(Seq(matched_refs[0]).reverse_complement())
                     if len(reverse)!= len(ref):
-                        print 'lengths are different!!!'
+                        print 'fragment not the same length as matching design'
                         discarded_design_csv.writerow([record.name,sample,reverse,umi,
                                                        'fragment not the same length as matching design', best_mismatch,
                                                        design_umi_dictionary[ref]['id']])
                         SeqIO.write(record,discarded_design_fasta,'fastq')
                         return False
+                    try:
+                        design_umi_dictionary[ref]['umi_sets'][best_mismatch].add(umi)
+                        design_umi_dictionary[ref]['match_counts'][best_mismatch] = design_umi_dictionary[ref]['match_counts'][best_mismatch] + 1
+                        mismatch_design_csv.writerow([record.name,sample,reverse,umi,best_mismatch,design_umi_dictionary[ref]['id']])
+                        SeqIO.write(record,mismatch_design_fasta,'fastq')
+                        return True
+                    except:
+                        print 'reverse fragment'
+                        print reverse
+                        print 'ref'
+                        print ref
+                        print 'best_mismatch'
+                        print best_mismatch
+                        return False
 
-                    design_umi_dictionary[ref]['umi_set'].add(umi)
-                    design_umi_dictionary[ref]['match_count'] = design_umi_dictionary[ref]['match_count'] + 1
-                    mismatch_design_csv.writerow([record.name,sample,reverse,umi,best_mismatch,design_umi_dictionary[ref]['id']])
-                    SeqIO.write(record,mismatch_design_fasta,'fastq')
-                    return True
         #if both the reverse and the straight read didn't find a match, than theres is no match and we'll record that
         discarded_design_csv.writerow([record.name,sample,fragment,umi,
                                        'no match below ' + str(allowed_mismatches)+ ' mismatches', 'NA', 'NA'])
@@ -673,7 +737,7 @@ def best_mismatch_old_logic(design_umi_dictionary,fragment,allowed_mismatch):
     best_mismatch = float('inf')
     matched_refs = []
     best_ref_umi_dict = None
-    fragment = str(Seq(fragment).reverse_complement())
+    # fragment = str(Seq(fragment).reverse_complement())
     for design,umi_dict in design_umi_dictionary.iteritems():
         if len(design) != len(fragment):
             continue
@@ -683,26 +747,30 @@ def best_mismatch_old_logic(design_umi_dictionary,fragment,allowed_mismatch):
         if current_mismatch > best_mismatch:
             continue
         elif current_mismatch == best_mismatch:
-            matched_refs.append(str(Seq(design).reverse_complement()))
+            # matched_refs.append(str(Seq(design).reverse_complement()))
+            matched_refs.append(design)
         elif current_mismatch < best_mismatch:
             best_mismatch = current_mismatch
-            matched_refs = [str(Seq(design).reverse_complement())]
+            # matched_refs = [str(Seq(design).reverse_complement())]
+            matched_refs = [design]
             best_ref_umi_dict = umi_dict
     if best_mismatch > allowed_mismatch:
-        return float('inf'),[],None
+        # return float('inf'),[],None
+        return None,None
 
-    return best_mismatch,matched_refs,best_ref_umi_dict
+    # return best_mismatch,matched_refs,best_ref_umi_dict returns the best reference umi dictionary as well
+    return best_mismatch,matched_refs
 
 
 
-def find_best_mismatch(fragment,allowed_mismatches):
+def find_best_mismatch(fragment,allowed_mismatches,design_umi_dictionary):
     #mismatch finder using suffix tree
     #receives fragment and maximim allowed mismatches
     #returns a list of matched reference sequences and them mismatch number
 
     #set the initail best mismatch to the highest number possible
     best_mismatch = float('inf')
-    #send fragment and max mismatch number to suffix tree 
+    # #send fragment and max mismatch number to suffix tree
     m= st_align.get_matched_records(fragment,allowed_mismatches)
     if not m:
         return None,None
@@ -713,6 +781,16 @@ def find_best_mismatch(fragment,allowed_mismatches):
             best_mismatch = match[1]
             ref = str(match[0].seq)
             matched_refs.append(ref)
+    # old_best_mismatch,old_matched_refs,best_ref_umi_dict =  best_mismatch_old_logic(design_umi_dictionary,
+    #                                                                                 fragment,allowed_mismatches)
+
+    # if set(old_matched_refs) != set(matched_refs):
+    #     print 'they dont equal, what gives????'
+    #     print fragment
+    #     print best_mismatch
+    #     print matched_refs
+    #     print old_best_mismatch
+    #     print old_matched_refs
 
     return matched_refs,best_mismatch
 
@@ -770,18 +848,35 @@ def main(argv):
     allowed_mismatches = int(argv[11])
     mismatch_design_file = argv[12]
 
-    design_umi_frequency,design_match_count = sample_design_frequency(sample_name,sample_location,ref_file,discarded_trim_file,discarded_design_file,
+    design_umi_frequency_list,design_match_count_list,design_umi_frequencies_all_mismatches,design_match_counts_all_mismatches\
+        = sample_design_frequency(sample_name,sample_location,ref_file,discarded_trim_file,discarded_design_file,
                                              summary_file,umi_output_location,record_umi_sets,allowed_mismatches,
                                              mismatch_design_file)
-    result_csv = csv.writer(open(res_file,'wb'))
-    result_csv.writerow(['',sample_name])
-    for design,umi_frequency in design_umi_frequency.iteritems():
-        result_csv.writerow([design,umi_frequency])
 
-    match_count_csv = csv.writer(open(match_count_file,'wb'))
-    match_count_csv .writerow(['',sample_name])
-    for design,match_count in design_match_count.iteritems():
-        match_count_csv.writerow([design,match_count])
+    for mismatch,design_umi_frequency in enumerate(design_umi_frequency_list):
+        mismatches = '_' +  str(mismatch) + '_mismatches'
+        result_csv = csv.writer(open(res_file+mismatches + '.csv','wb'))
+        result_csv.writerow(['',sample_name])
+        for design,umi_frequency in design_umi_frequency.iteritems():
+            result_csv.writerow([design,umi_frequency])
+
+    for mismatch,design_match_count in enumerate(design_match_count_list):
+        mismatches = '_' + str(mismatch) + '_mismatches'
+        match_count_csv = csv.writer(open(match_count_file+mismatches + '.csv','wb'))
+        match_count_csv .writerow(['',sample_name])
+        for design,match_count in design_match_count.iteritems():
+            match_count_csv.writerow([design,match_count])
+
+    all_result_csv = csv.writer(open(res_file+'_all_mismatches.csv','wb'))
+    all_result_csv.writerow(['',sample_name])
+    for design,umi_frequency in design_umi_frequencies_all_mismatches.iteritems():
+        all_result_csv.writerow([design,umi_frequency])
+
+    all_match_count_csv = csv.writer(open(match_count_file+'_all_mismatches.csv','wb'))
+    all_match_count_csv .writerow(['',sample_name])
+    for design,match_count in design_match_counts_all_mismatches.iteritems():
+        all_match_count_csv.writerow([design,match_count])
+
 
     print 'run completed'
 

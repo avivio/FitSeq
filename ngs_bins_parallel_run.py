@@ -7,12 +7,18 @@ import os
 import sys
 
 #the location of the sample directory and the home directory for runs on the sample test set
-# DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/"
-# DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'bins/'
+DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/"
+DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'bins/'
 
 #the location of the sample directory and the home directory for runs on the fitseq raw data
-DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_raw_data/150330_D00257_0179_AC6FFDANXX/"
-DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'Unaligned_fastq/'
+# DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_raw_data/150330_D00257_0179_AC6FFDANXX/"
+# DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'Unaligned_fastq/'
+
+
+# #location for runs on fitseq raw data on single samples
+# DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_partial_data/"
+# DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'Project_A_20/'
+
 
 #the location of the reference table
 DEFAULT_REFERENCE_FILE = "/home/labs/pilpel/avivro/workspace/data/reference_variant_full_sequences.tab"
@@ -72,13 +78,13 @@ def go_over_samples(record_umi_sets,mismatches,sample_dir  = DEFAULT_SAMPLE_DIR,
             if not os.path.exists(res_dir):
                 os.makedirs(res_dir)
             #create the result file where we'll record the design frequencies for this sample
-            res_file = res_dir + sample_name + '_umi_frequency_' + date_time +  mismatch_string +'.csv'
+            res_file = res_dir + sample_name + '_umi_frequency_' + date_time
 
             # add the file location to the result file list
             result_files_list.append(res_file)
 
             #create the result file where we'll record the design frequencies for this sample
-            match_count_file = res_dir + sample_name + '_match_count_' + date_time + mismatch_string +'.csv'
+            match_count_file = res_dir + sample_name + '_match_count_' + date_time
 
             # add the file location to the result file list
             match_count_file_list.append(match_count_file)

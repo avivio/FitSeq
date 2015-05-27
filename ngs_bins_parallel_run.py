@@ -7,12 +7,12 @@ import os
 import sys
 
 #the location of the sample directory and the home directory for runs on the sample test set
-DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/"
-DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'bins/'
+# DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_sample_data/multiple_bins_example/"
+# DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'bins/'
 
 #the location of the sample directory and the home directory for runs on the fitseq raw data
-# DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_raw_data/150330_D00257_0179_AC6FFDANXX/"
-# DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'Unaligned_fastq/'
+DEFAULT_HOME_DIR =  "/home/labs/pilpel/avivro/workspace/data/fitseq_raw_data/150330_D00257_0179_AC6FFDANXX/"
+DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'Unaligned_fastq/'
 
 
 # #location for runs on fitseq raw data on single samples
@@ -24,7 +24,7 @@ DEFAULT_SAMPLE_DIR = DEFAULT_HOME_DIR + 'bins/'
 DEFAULT_REFERENCE_FILE = "/home/labs/pilpel/avivro/workspace/data/reference_variant_full_sequences.tab"
 
 
-def go_over_samples(record_umi_sets,mismatches,sample_dir  = DEFAULT_SAMPLE_DIR, home_dir = DEFAULT_HOME_DIR, ref_file = DEFAULT_REFERENCE_FILE):
+def go_over_samples(mismatches,sample_dir  = DEFAULT_SAMPLE_DIR, home_dir = DEFAULT_HOME_DIR, ref_file = DEFAULT_REFERENCE_FILE):
     #runs over the files in the bin directory and sends each to be processed as a separete job on wexac
     #receives boolean value for recording umi sets, the maximum number of mismatches allowed, the raw data directory,
     #the home directory of the entire pipeline and the location of the reference file
@@ -50,6 +50,10 @@ def go_over_samples(record_umi_sets,mismatches,sample_dir  = DEFAULT_SAMPLE_DIR,
     summary_files_list = []
     counter_file_list = []
     match_count_file_list = []
+    mismatch_file_list = []
+    umi_file_list = []
+    discarded_match_file_list = []
+    discarded_trim_file_list = []
 
     #counting which point we are at in the walk over all the directories in the sample directory
     walk_count = -1
@@ -92,9 +96,12 @@ def go_over_samples(record_umi_sets,mismatches,sample_dir  = DEFAULT_SAMPLE_DIR,
 
             #create discarded read file names for the reads discarded at trim stage and at match to design stage
             discarded_trim_file = res_dir + sample_name + '_discarded_trimmed_' + date_time +  mismatch_string
+            discarded_trim_file_list.append(discarded_trim_file)
             discarded_match_file = res_dir + sample_name + '_discarded_match_' + date_time +  mismatch_string
+            discarded_match_file_list.append(discarded_match_file)
             #create file to record all reads that have mismatches but passed maximum mismatch filter
             mismatch_file = res_dir + sample_name + '_mismatch_' + date_time +  mismatch_string
+            mismatch_file_list.append(mismatch_file)
 
             #create the summary file where we write the run stats, then add the file to the list of locations
             summary_file = res_dir + sample_name + '_summary_' + date_time +  mismatch_string  +'.csv'
@@ -105,8 +112,8 @@ def go_over_samples(record_umi_sets,mismatches,sample_dir  = DEFAULT_SAMPLE_DIR,
             counter_file_list.append(counter_file)
 
             #the umi output directory is where the fastas of each designs umis are written to if the user requires it
-            umi_output_file = res_dir + 'umi_output/'
-
+            umi_output_file = res_dir + 'design_umi_sequences_with_frequency'+ date_time +'.csv'
+            umi_file_list.append(umi_output_file)
             #create the command for the wexac run by joining all the params together
             # for more memory -R "rusage[mem=4000]" change 4000 to how much memory you want
             # -N is to send the email at the end of the run -o it to write to a new output file which is in fact the counter logfile
@@ -115,7 +122,7 @@ def go_over_samples(record_umi_sets,mismatches,sample_dir  = DEFAULT_SAMPLE_DIR,
             #the umi output direcotry, and a boolean if needed to record the umi output
             command = ' '.join(['bsub  -N -o' ,counter_file,"-q new-all.q /apps/RH6U4/blcr/0.8.5/bin/cr_run python ./ngs_pipeline.py",
                 sample_name, root, home_dir, ref_file,res_file ,  discarded_trim_file , discarded_match_file ,
-                summary_file,umi_output_file,record_umi_sets,match_count_file,mismatches,mismatch_file])
+                summary_file,umi_output_file,match_count_file,mismatches,mismatch_file])
 
             #print and send the command to the shell
             print command
@@ -137,13 +144,24 @@ def go_over_samples(record_umi_sets,mismatches,sample_dir  = DEFAULT_SAMPLE_DIR,
     all_match_counts_file_location = final_result_directory + 'all_match_counts.txt'
     all_match_counts_file = open(all_match_counts_file_location,'wb')
     all_match_counts_file.write("\n".join(match_count_file_list))
+    all_discarded_trim_files_location = final_result_directory + 'discarded_trim.txt'
+    all_discarded_trim_files = open(all_discarded_trim_files_location,'wb')
+    all_discarded_trim_files.write("\n".join(discarded_trim_file))
+    all_discarded_match_files_location = final_result_directory + 'discarded_match.txt'
+    all_discarded_match_files = open(all_discarded_match_files_location,'wb')
+    all_discarded_match_files.write("\n".join(discarded_match_file))
+    all_mismatch_files_location = final_result_directory + 'mismatch_files.txt'
+    all_mismatch_files = open(all_mismatch_files_location,'wb')
+    all_mismatch_files.write("\n".join(mismatch_file_list))
+    all_umi_files_location = final_result_directory + 'umi_files.txt'
+    all_umi_files = open(all_umi_files_location,'wb')
+    all_umi_files.write("\n".join(umi_file_list))
 
 
 
 if __name__ == "__main__":
     #recieves a boolean value if you want to record the strings of the umis of every design to fasta files
     #and number of mismatches allowed to still call a read for a design
-    record_umi_sets = sys.argv[1]
-    mismatches = str(sys.argv[2])
+    mismatches = str(sys.argv[1])
     #runs the go over samples method
-    go_over_samples(record_umi_sets,mismatches)
+    go_over_samples(mismatches)
